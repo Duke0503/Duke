@@ -110,7 +110,7 @@ export const ENV_GROUPS: readonly EnvGroup[] = [
     why: "The memory. Saves your characters, calls and transcripts.",
     url: "https://supabase.com/dashboard",
     keys: [
-      { key: "DATABASE_URL", label: "Postgres URL", where: "Project -> Connect -> Connection string (URI)", secret: true, example: "postgresql://user:pass@host:5432/postgres" },
+      { key: "DATABASE_URL", label: "Postgres URL", where: "Project -> Connect -> Session pooler (port 5432)", secret: true, example: "postgresql://postgres.ref:pass@aws-0-region.pooler.supabase.com:5432/postgres" },
     ],
   },
   {

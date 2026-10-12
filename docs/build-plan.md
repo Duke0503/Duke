@@ -549,6 +549,28 @@ answered by silence. No error on either side. The agent now passes `agentName` e
 `DEFAULT_AGENT_NAME` in `@duke/adapters`, the same constant the dispatch uses: the two ends cannot
 disagree, whatever is in the environment.
 
+**And the database could not be reached at all.** The most complete example of the same lesson, so
+it is worth writing down in full: Supabase hands you three connection strings and the obvious one is
+the wrong one.
+
+  - the **direct** host, `db.<ref>.supabase.co`, is what everyone copies. It publishes an `AAAA`
+    record and **no `A` record at all**, so a network without IPv6 cannot resolve it. The failure is
+    `ENETUNREACH` or a bare DNS error, which reads exactly like a wrong password;
+  - the fix did not need the dashboard: the IPv6 prefix it *did* return belongs to
+    `ap-northeast-2` in AWS's published `ip-ranges.json`, the pooler hostname carries the region
+    (`aws-0-ap-northeast-2.pooler.supabase.com`), and that pooler takes the project on port 5432
+    and 6543 while the neighbouring regions answer "tenant/user not found". So the region can be
+    recovered from a failed connection, which is worth knowing at 2am;
+  - the port choice was then decided by reading `postgres.js`'s options rather than copying
+    Supabase's default. `prepare: true` (the default) prepares a statement on the **second**
+    execution of a query, and a transaction pooler gives each transaction a different backend — so
+    the app connects, serves a request or two, and then fails mid-call with "prepared statement
+    does not exist". Duke sets `prepare: false`, which costs nothing at this query volume and
+    makes the URL work on either pooler.
+
+All of it is in `docs/keys.md` §4 now, and `pnpm run db:push` against the real database created the
+eight tables.
+
 > Not verified: **the images were never built.** No Docker engine was available. The Dockerfiles
 > take the conservative shape (Debian not Alpine, `--frozen-lockfile`, the runtime stage doing its
 > own `--prod` install instead of copying a pnpm symlink tree), and any mistake in them is a

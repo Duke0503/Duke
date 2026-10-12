@@ -96,27 +96,29 @@ page: those are for a browser, and Duke's database is only ever touched by the s
    (save it — you need it in a moment).
 2. Wait about two minutes while the database starts.
 3. **Connect** (top of the page, or Project Settings → Database) → the **Connection string** tab.
-   There are two lines worth having, and the difference is the port:
-   - **Transaction pooler, port `6543`** — this is `DATABASE_URL`, what the app runs on;
-   - **Session pooler, port `5432`** — the same host, for one-off schema work.
+   Take the **Session pooler** line. There are three lines on that tab and only one is right for
+   Duke:
+   - **Session pooler, port `5432`** — ✔ this is `DATABASE_URL`. It answers on IPv4 and it works for
+     the app *and* for `pnpm run db:push`;
+   - **Transaction pooler, port `6543`** — for serverless functions, and it needs
+     `prepare: false`, which Duke sets... so it also works, but nothing here wants it;
+   - **Direct connection** (`db.xxxxx.supabase.co`) — ✘ do not use. New projects publish an `AAAA`
+     record and no `A` record at all, so a network without IPv6 cannot see the host. You get
+     `ENETUNREACH` or a DNS failure, which reads like a wrong password and is not.
 
 ```
-DATABASE_URL=postgresql://postgres.xxxxx:YOUR-PASSWORD@aws-0-eu-west-1.pooler.supabase.com:6543/postgres
+DATABASE_URL=postgresql://postgres.xxxxx:YOUR-PASSWORD@aws-0-ap-northeast-2.pooler.supabase.com:5432/postgres
 ```
 
-- Replace `YOUR-PASSWORD` with the password from step 1. If it contains `@`, `#`, `/` or `:`, reset
-  it in Settings → Database to letters and numbers: those characters end the URL early, and the
-  error you get for it names something else entirely.
-- Use the **pooler** host, not `db.xxxxx.supabase.co`. New Supabase projects answer on IPv6 only at
-  the direct host, which a VPS usually cannot reach, and the pooler is the thing that survives
-  connections being recycled.
-- `pnpm run db:push` is the one command that sends DDL, and DDL prefers the session pooler. If it
-  ever refuses, put the other port in front of the command instead of editing the file — a real
-  environment variable wins over `.env`, by design:
-
-```powershell
-$env:DATABASE_URL="postgresql://postgres.xxxxx:YOUR-PASSWORD@aws-0-eu-west-1.pooler.supabase.com:5432/postgres"; pnpm run db:push
-```
+- The `aws-0-<region>` in the middle is **your project's region**, not a choice — copy the line
+  rather than typing it, and change only the port if you need to.
+- Replace `YOUR-PASSWORD` with the password from step 1. If it contains `@`, `#`, `/`, `?` or `:`,
+  write it **percent-encoded** — `@` becomes `%40`, `#` becomes `%23` — because those characters
+  end the URL early and the driver then complains about the *host*. (Resetting the password to
+  letters and numbers in Settings → Database is the other way out.)
+- Test it before you go on. `pnpm run doctor` ends with a list like
+  `Postgres at aws-0-<region>.pooler.supabase.com:5432 answered`, and `pnpm run db:push` prints
+  `[✓] Changes applied`.
 
 ### 5. LiveKit — https://cloud.livekit.io
 
