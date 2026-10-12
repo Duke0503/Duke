@@ -216,6 +216,7 @@ The whole point is `$0`. Two things to watch, both in `logs/all/`:
 - **LiveKit** gives 1,000 minutes a month on the free tier.
 
 Duke counts both in Redis and the number is on the **Settings** screen. Past 90% it warns and
-shortens its replies; the hard stop is per call at 30 minutes. Nothing can silently start
-costing money: the free tiers are per-account, so the worst case is a service that stops
-answering, not a bill.
+shortens its replies. A single call ends by itself at **30 minutes** — the call screen hangs up and
+shows you the notes, with the reason written on the sheet — and once the month's minutes are gone
+the API refuses to start the next call. Nothing can silently start costing money: the free tiers
+are per-account, so the worst case is a service that stops answering, not a bill.

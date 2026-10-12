@@ -20,6 +20,7 @@
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { DEFAULT_BUDGET_LIMITS } from "@duke/core";
 import { Room, RoomEvent, Track, type RemoteTrack } from "livekit-client";
 import { PhoneOffIcon, MicIcon, MicOffIcon, ArrowRightIcon, SparklesIcon } from "lucide-react";
 import { BareScreen } from "@/components/shell/app-shell";
@@ -38,6 +39,19 @@ import { useEndCall, useStartCall } from "@/lib/queries";
 import type { EndedCall, StartedCall } from "@/lib/types";
 
 type Phase = "starting" | "connecting" | "live" | "disconnected" | "ended" | "failed";
+
+/**
+ * The per-call cap, in seconds — the same number the API budgets with.
+ *
+ * `DEFAULT_BUDGET_LIMITS` lives in `@duke/core` and is read here rather than copied: a rule that
+ * is written down twice is a rule that disagrees with itself eventually. Core is a plain
+ * TypeScript package with no I/O in it, so the browser can import it (as it already does for the
+ * voice map on Home).
+ */
+const CALL_CAP_SECONDS = DEFAULT_BUDGET_LIMITS.callMinutes * 60;
+
+/** How long before the cap to say something, rather than just hanging up. */
+const CALL_WARN_SECONDS = 120;
 
 export default function CallPage() {
   return (
@@ -62,6 +76,7 @@ function CallScreen() {
   const [muted, setMuted] = useState(false);
   const [result, setResult] = useState<EndedCall | null>(null);
   const [ending, setEnding] = useState(false);
+  const [capped, setCapped] = useState(false);
 
   const roomRef = useRef<Room | null>(null);
   const secondsRef = useRef(0);
@@ -193,6 +208,21 @@ function CallScreen() {
     setPhase("ended");
   }, [call, end, ending]);
 
+  // ------------------------------------------------------------------ 5. the per-call cap
+  // A call that nobody ends is how a month of free minutes disappears. The API already refuses
+  // to *start* a call once the month is spent; this is the same rule applied to the call in
+  // progress. It ends the call the ordinary way — through `finish()` — so the learner gets the
+  // end-of-call notes instead of a room that has gone quiet and a timer that keeps counting.
+  //
+  // It sits in the browser because this screen is the only thing that knows the call is still
+  // open, and `finish()` is already the one path that closes a call. A second way to end one
+  // would be a second way to leave a session half-closed.
+  useEffect(() => {
+    if (phase !== "live" || seconds < CALL_CAP_SECONDS) return;
+    setCapped(true);
+    void finish();
+  }, [phase, seconds, finish]);
+
   // If the room drops on its own (agent gone, network gone), close the books anyway rather
   // than leaving an open session behind.
   useEffect(() => {
@@ -241,6 +271,7 @@ function CallScreen() {
   }
 
   const live = phase === "live";
+  const remaining = Math.max(0, CALL_CAP_SECONDS - seconds);
   const phaseLabel =
     phase === "live"
       ? "Live call"
@@ -303,6 +334,12 @@ function CallScreen() {
 
           <p className="font-mono text-3xl tabular-nums">{formatClock(seconds)}</p>
 
+          {live && remaining <= CALL_WARN_SECONDS ? (
+            <p className="text-duke-ember font-mono text-[11px] tracking-wide">
+              {plural(Math.max(1, Math.ceil(remaining / 60)), "minute")} left in this call
+            </p>
+          ) : null}
+
           {remembered ? (
             <div className="border-border bg-card/60 w-full max-w-[320px] rounded-lg border px-3.5 py-3">
               <div className="flex items-center gap-1.5">
@@ -363,6 +400,12 @@ function CallScreen() {
         <SheetContent showClose={false}>
           <SheetBody className="pt-4">
             <MicroLabel>Call ended</MicroLabel>
+            {capped ? (
+              <p className="text-muted-foreground mt-2 text-sm leading-relaxed">
+                This call reached its {DEFAULT_BUDGET_LIMITS.callMinutes}-minute limit and ended
+                on its own. That keeps the month’s free minutes for the next call.
+              </p>
+            ) : null}
             <SheetHeading className="mt-2">
               That was {formatDuration(result?.durationSec ?? seconds)} with{" "}
               {call?.characterName ?? "your friend"}.

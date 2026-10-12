@@ -495,6 +495,25 @@ takes the name silently: bare `pnpm doctor` prints nothing and exits 0, which is
 possible failure for a diagnostic tool. It is `pnpm run doctor`, and the reason is written down
 in both `docs/deploy.md` and the script.
 
+**The per-call cap had a rule and no enforcer.** `checkBudget` has a `callMinutes: 30` branch and
+nothing ever passed a non-zero `currentCallSeconds`, so it was dead at runtime — a call left open
+would sit there spending the month's LiveKit minutes. The call screen now applies it
+(`CALL_CAP_SECONDS`, read from `DEFAULT_BUDGET_LIMITS` in `@duke/core`, not copied): at 30 minutes
+it ends the call through the same `finish()` the hang-up button uses, so the learner gets the
+end-of-call notes, and the sheet says why. Two minutes before, the timer area says how much is
+left. It is in the browser on purpose: that screen is the only thing that knows a call is still
+open, and a second way to end a call is a second way to leave one half-closed. The honest limit is
+that a client cannot be forced — but the monthly minutes are enforced by the API, which is what
+bounds the cost.
+
+**Two tables are shaped and deliberately unused:** `memories` (semantic memory is on the "do not
+build yet" list) and `usage_ledger` (a durable monthly mirror of the Redis counters). The Redis
+counters are the live source of truth and already feed the budget guard and the Settings screen.
+Writing the ledger would mean a tenth port, an adapter and a use-case for a number Redis already
+holds, in the call-shutdown path — the most fragile place in the system — and it would be
+unverifiable without a real database. It is a one-place change when there is a reason for it; the
+reason would be Upstash losing a counter, which has not happened.
+
 Also: the PWA manifest and the app icon (so the phone can install it instead of opening a tab),
 and `DEEPGRAM_MODEL` defaulted to `nova-3` in the agent — it said `nova-2` while the adapter, the
 key list and `.env.example` all said `nova-3`.
