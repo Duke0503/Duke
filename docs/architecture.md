@@ -440,6 +440,7 @@ LOG_DIR
 LOG_RETENTION_DAYS
 API_PORT
 WEB_ORIGIN
+API_ORIGIN                       # optional; web -> api behind a proxy
 
 # data
 DATABASE_URL                     # Postgres (Supabase)

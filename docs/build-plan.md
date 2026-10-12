@@ -378,6 +378,43 @@ call where the character clearly remembers the old topic.
 
 **Done when:** I can create a character on my phone and have a full call, start to finish.
 
+### What was built (and the two places the plan above was wrong)
+
+Sonner was **not** used. It is a toast library, and Duke's errors are not toasts: a failed call
+start, a missing key and a rejected form all need to sit on the screen until they are dealt
+with, next to the thing that caused them. So errors are inline (`ErrorNote`) and the API's own
+`problems[].problem` — which is already written for a human — is what gets shown.
+
+`Select` was not used either; the voice and correction pickers are **RadioGroup**, because a
+menu hides the options and there are only 3–7 of each.
+
+Routes, which is the real shape of the app:
+
+| Route | Screen | Reads | Writes |
+|---|---|---|---|
+| `/` | Home | `useCharacters`, `useSessions(1)`, `useSetup` | — |
+| `/crew` | Crew + Switch Character sheet | `useCharacters` | `useDeleteCharacter` |
+| `/create` | Create / Edit friend | `useCharacter` | `useCreateCharacter`, `useUpdateCharacter` |
+| `/call/[characterId]` | Active Call | — | `useStartCall`, `useEndCall` |
+| `/practice` | Reading practice | — | — (the phone's own speech engine) |
+| `/history` | History | `useSessions` | — |
+| `/history/[id]` | Session Detail | `useSession` | — |
+| `/settings` | Settings | `useUsage`, `useSetup` | — |
+| `/setup` | Keys checklist | `useSetup` | — |
+
+Four notes that are easy to get wrong:
+
+1. **The browser only ever calls `/api` on its own origin.** A rewrite in `next.config.ts`
+   forwards it to the API in development; Caddy does it in production. No API base URL, no
+   CORS, and the API's address never reaches the browser bundle.
+2. **A call is started by the call screen, not by Home.** Home navigates to
+   `/call/<friendId>`; that screen does the `POST /calls`. A room token therefore never appears
+   in a URL, in the back button, or in a link someone could share.
+3. **Starting a call is idempotent.** React double-invokes effects in development; without the
+   `call !== null` guard the app would open two rooms and bill two agents.
+4. **The tab bar has four items, and a call is not one of them.** A call takes the whole phone,
+   so it renders outside the shell that owns the tab bar.
+
 ---
 
 ## M5 — Safety, budget, and deploy
