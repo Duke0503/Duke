@@ -571,6 +571,27 @@ the wrong one.
 All of it is in `docs/keys.md` §4 now, and `pnpm run db:push` against the real database created the
 eight tables.
 
+**The call wiring, checked against the real LiveKit project.** LiveKit is the one provider the
+doctor only shape-checks — and the one where a bad value is invisible: the room is created, the
+phone connects, the person talks, and nothing answers. So it was verified by hand, in the order a
+call does it:
+
+  - `listRooms` accepted the key and secret (a real API call, not a shape test);
+  - `createRoom` returned a join token with identity `phone-…`, the four grants, and a 900s
+    lifetime — decoded and read, not assumed;
+  - the **agent dispatch** exists for the room, under the name `duke`, and it was **still there ten
+    seconds later**. That is the whole answer to "will anyone pick up": the room is pre-created
+    empty, the dispatch waits for a worker, and nothing is dropped in the gap before the phone
+    joins. `endRoom` took it away again;
+  - the dispatch name equals `DEFAULT_AGENT_NAME`, which is the constant both ends use.
+
+One SDK detail worth keeping, because it made the first run look alarming: **`listRooms` lags.**
+Immediately after `createRoom` the room list was empty, which reads like the room and its dispatch
+had been reaped. They had not — `AgentDispatchClient.listDispatch(room)` showed the dispatch on the
+first try, and the room appeared in the list a second or two later. `listDispatch` is also the
+stricter check, in that it throws `not_found: requested room does not exist` for a room that is not
+there, which is an answer rather than an error.
+
 > Not verified: **the images were never built.** No Docker engine was available. The Dockerfiles
 > take the conservative shape (Debian not Alpine, `--frozen-lockfile`, the runtime stage doing its
 > own `--prod` install instead of copying a pnpm symlink tree), and any mistake in them is a

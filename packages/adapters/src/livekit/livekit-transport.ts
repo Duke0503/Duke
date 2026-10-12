@@ -146,7 +146,15 @@ export class LiveKitTransport implements Transport {
     }
   }
 
-  /** Cheap credential check for the doctor command. */
+  /**
+   * Ask LiveKit whether it accepts these credentials. `listRooms` is the cheapest call that
+   * proves it, and it is the one method here that makes a network request to do nothing else.
+   *
+   * The doctor deliberately does **not** call this. Its header says so: checking whether a key is
+   * valid means calling the provider, and a provider having a bad minute would then be reported
+   * as a setup mistake. A doctor that lies is worse than one that stays quiet. So this exists for
+   * a deliberate check by hand — and the first real call is still where a wrong key surfaces.
+   */
   async check(): Promise<void> {
     try {
       await this.roomClient().listRooms();
