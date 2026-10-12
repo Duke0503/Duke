@@ -1,0 +1,427 @@
+# Duke — Build Plan
+
+**Date:** 12 Oct 2026
+**Status:** Ready to build — plan only, no code yet
+**Written for:** me (simple English, step-by-step)
+**Related:** `docs/architecture.md` (the shape), `docs/ai-english-friend-plan.md` (the product)
+
+---
+
+## 0. How to read this plan
+
+- Work goes in **milestones** (M0 → M5). Finish one before starting the next.
+- Every milestone has a **"Done when…"** line. If it is not true, the milestone is not done.
+- Every step says **what to do**, **the command**, and **the check**.
+- Nothing here needs a credit card. The only money is **the VPS I already have.**
+
+**The golden rule while building:**
+> Do the smallest thing that proves the idea works. One character. One voice. One call.
+
+---
+
+## 1. Accounts and keys (do this first)
+
+Open all of these and keep the keys in one safe place. **Never commit keys to git.**
+
+| # | Service | What for | Free limit | What to copy |
+|---|---|---|---|---|
+| 1 | **LiveKit Cloud** | the phone line (rooms) | 1,000 min/month | `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` |
+| 2 | **Deepgram** | ears (STT) | $200 credit | `DEEPGRAM_API_KEY` |
+| 3 | **Groq** | brain (LLM) | free tier | `GROQ_API_KEY` |
+| 4 | **Azure Speech** | voice (TTS, F0 free) | 500k chars/month | `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION` |
+| 5 | **Supabase** | Postgres + Auth | 500 MB | `SUPABASE_URL`, anon key, service key |
+| 6 | **Upstash** | Redis (cache) | 10k cmds/day | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` |
+| 7 | **My VPS** | runs the server | — | SSH access, a domain name |
+
+**Done when:** all keys are saved in a password manager, and none of them are in the repo.
+
+> Tip: create the keys **one service at a time** and test it before moving on (see M1).
+> A key that "probably works" costs hours later.
+
+---
+
+## 2. Where everything runs
+
+```
+        Phone (browser)
+          │                    │
+     HTTPS│                    │WebRTC
+          ▼                    ▼
+   ┌─────────────────┐   ┌──────────────┐
+   │  MY VPS         │   │ LiveKit Cloud│
+   │  Caddy (HTTPS)  │   └──────┬───────┘
+   │  Next.js (web)  │          │ agent joins
+   │  NestJS (api)   │          │
+   │  Voice agent ───┼──────────┘
+   └────┬───────┬────┘
+        ▼       ▼
+   Supabase   Upstash
+   (Postgres)  (Redis)
+```
+
+| Inbound ports on the VPS | Why |
+|---|---|
+| **22** | SSH |
+| **80 / 443** | the website + API (Caddy gets the HTTPS certificate automatically) |
+
+The voice agent makes **outbound** connections only. No extra ports, no firewall pain.
+
+---
+
+## 3. Tools on my machine (and on the VPS)
+
+| Tool | Where | Why |
+|---|---|---|
+| **Node.js 22 LTS** | PC + VPS | runs everything |
+| **pnpm** | PC + VPS | the monorepo package manager |
+| **Docker + Compose** | PC + VPS | local Postgres/Redis, and the deploy |
+| **Git** | PC | version control |
+| **shadcn CLI** (`npx shadcn@latest`) | PC | copies UI components into the repo |
+| **Caddy** | VPS | free automatic HTTPS |
+| **ffmpeg** *(optional)* | PC | check audio files while debugging |
+
+**Done when:** `node -v`, `pnpm -v`, `docker -v` all answer on my PC.
+
+---
+
+## 4. The order of work (one picture)
+
+| Milestone | Goal | Rough size |
+|---|---|---|
+| **M0** | Skeleton: monorepo + core + ports (no real calls yet) | small |
+| **M1** | One real free call: talk to one character | medium |
+| **M2** | Characters + emotion: many roles, many voices | medium |
+| **M3** | Memory: save sessions, "Continue" an old talk | medium |
+| **M4** | The 8 screens wired to the API | large |
+| **M5** | Safety + budget + deploy to the VPS | medium |
+
+---
+
+## M0 — Skeleton
+
+**Goal:** the repo exists, the rules live in `core`, nothing talks to the internet yet.
+
+### Steps
+1. Create the workspace.
+   ```bash
+   mkdir duke && cd duke
+   git init
+   pnpm init
+   ```
+2. Add `pnpm-workspace.yaml` with `apps/*` and `packages/*`.
+3. Add TypeScript strict config + shared `tsconfig.base.json`.
+4. Create the folders:
+   ```
+   apps/web   apps/api   apps/agent
+   packages/core/{domain,application}
+   packages/adapters  packages/shared
+   infra
+   ```
+5. **Frontend foundation** (in `apps/web`):
+   - Scaffold Next.js (App Router, TypeScript) + **Tailwind CSS v4**.
+   - `npx shadcn@latest init` → choose **CSS variables**, dark by default.
+   - In `globals.css`, paste the **token → CSS variable** table from
+     `architecture.md §4` (`--background`, `--card`, `--primary`, `--primary-foreground`, ...).
+   - Load the 3 fonts (Space Grotesk, IBM Plex Sans, IBM Plex Mono) and add the
+     `.font-display` / `.font-body` / `.font-mono` classes.
+   - Add the **TanStack Query** provider (`QueryClientProvider`) in the root layout.
+6. **Backend foundation** (in `apps/api`) — **logging comes first**:
+   - **Logging** (see `architecture.md §17`): pino to stdout **and** `logs/<service>.<date>.log`,
+     request ids, secret redaction, and a gzip archive of finished days. The agent uses the
+     same logger, so one conversation can be traced in one file.
+   - NestJS app, compiled with plain `tsc` (no Nest CLI — see the notes below).
+   - Add one module per area: `characters`, `sessions`, `calls`, `usage`, `auth`.
+   - Bind adapters to ports with DI providers (see `architecture.md §6`).
+   - `GET /api/health` returning `{ ok: true }`.
+7. Write the **ports** in `packages/core/application/ports.ts`
+   (`SpeechToText`, `Brain`, `Voice`, `Transport`, `CharacterRepository`,
+   `SessionRepository`, `Cache`, `Clock`).
+8. Write the first **entities** in `packages/core/domain`
+   (`Character`, `Session`, `Turn`, `Correction`, `MemoryCard`).
+9. Add `infra/docker-compose.yml` for local Postgres (with pgvector) + Redis.
+10. Add a test runner (Vitest) and one test per domain rule.
+
+### Done when…
+- `pnpm -r typecheck` passes.
+- `pnpm test` runs and one domain test is green.
+- `docker compose up -d` gives a local Postgres + Redis.
+- the Nest API answers `GET /api/health` with `{ ok: true }`.
+- a normal request writes a JSON line with a `requestId` into `logs/`, while
+  health checks stay out of the file.
+- `.env.example` lists every variable, and `logs/` is git-ignored.
+- `core` imports **nothing** from `apps/` or a provider SDK.
+- a shadcn `Button` on a test page is **exactly our green** on our dark `--background`
+  (proof the tokens are wired, not the shadcn default grey).
+
+### Notes from the scaffold (gotchas already solved)
+
+| Thing | Decision | Why |
+|---|---|---|
+| Nest CLI | **not used** — `tsc` + `node dist/main.js` | `@nestjs/cli` needs TypeScript's programmatic API; TS 7 ships `tsc` only. `emitDecoratorMetadata` still works, so Nest DI is fine. |
+| TypeScript | pinned at the **workspace root (7.x)** | Nest 12 requires >= 6. TS 6+ **removed `baseUrl`** and now needs an explicit **`rootDir`**. |
+| pnpm build scripts | `onlyBuiltDependencies: ["esbuild"]` | pnpm 10 blocks postinstall scripts by default, which silently breaks vitest. |
+| API dev loop | two scripts: `dev` (`tsc --watch`) + `serve` (`node --watch dist/main.js`) | gets us live reload without another dependency. |
+| Log files | `logs/` is **git-ignored**; the folder is created at runtime | daily files are local state, not source. On the VPS `LOG_DIR` must point at a mounted volume. |
+| `.env.example` | **committed**, all keys present with empty values | so anyone cloning the repo knows exactly what to configure. `.env` is ignored. |
+
+---
+
+## M1 — One real free call
+
+**Goal:** I say "hello", one character answers out loud with emotion. One row of code per service.
+
+### M1.1 — The phone line (LiveKit)
+1. Create a LiveKit Cloud project, copy the 3 keys.
+2. In Nest, add `POST /calls/start` → returns a **short-lived room token**.
+3. Test with LiveKit's own sample app first (so we know the keys are good).
+
+**Check:** two browser tabs can hear each other in a room. ✅
+
+### M1.2 — The ears (Deepgram)
+1. Write `adapters/deepgram/DeepgramStt.ts` implementing `SpeechToText`.
+2. Test alone: send a recorded wav file, print the text.
+
+**Check:** the transcript of my test file is correct. ✅
+
+### M1.3 — The brain (Groq)
+1. Write `adapters/groq/GroqBrain.ts` implementing `Brain`.
+2. Test alone: send "Say hi in 5 words", print the answer.
+
+**Check:** the answer comes back in under ~1 second. ✅
+
+### M1.4 — The voice (Azure, with emotion)
+1. Write `adapters/azure/AzureVoice.ts` implementing `Voice`.
+2. Test alone: send "Oh nice, you finally said that right!" with style `cheerful`,
+   save the mp3, listen.
+
+**Check:** I can hear the emotion in the mp3. ✅
+
+### M1.5 — Connect them (the actor)
+1. Scaffold `apps/agent` with the **LiveKit Agents (TypeScript)** quickstart.
+2. Tell it: STT = Deepgram, LLM = Groq, TTS = Azure.
+3. Start the agent → join a room → talk.
+
+**Done when:** I speak → the character answers in an emotional voice, and I can
+interrupt it while it talks (barge-in), with no more than ~1.5 s delay.
+
+---
+
+## M2 — Characters and emotion
+
+**Goal:** many characters, each with its own voice and personality.
+
+### M2.1 — Save characters (DB + API)
+- `POST /api/characters`, `GET /api/characters`, `PATCH /api/characters/:id`.
+- Drizzle schema for `characters`.
+
+### M2.2 — The role prompt (the "brain" text)
+This is the heart of the personality. Put it in `core/application/BuildPrompt.ts`.
+
+```
+You are {name}, my English-speaking friend.
+Role: {role}.
+Personality: {personality}.
+Speak like a real phone call: 1-3 short sentences, natural, warm.
+
+Rules:
+- Always answer in English, at my level, and keep it simple.
+- Start EVERY reply with one mood tag in double brackets, like [[cheerful]].
+  Choose from: cheerful, calm, excited, sad, angry, whisper, teasing,
+  serious, friendly, curious, surprised, sympathetic.
+- Feedback style is "{feedbackStyle}":
+    just talk      → do not correct me, just keep the conversation going
+    quiet tips     → correct me gently, and only the important mistakes
+    correct aloud  → correct my mistakes clearly, then continue
+- Never write long paragraphs. This is a phone call, not an essay.
+- If I roleplay, stay in character until I say "stop".
+```
+
+### M2.3 — The voice for each role (map)
+> ⚠️ These voices must be **confirmed against Azure's live voice list** before we trust them.
+> Not every voice supports every emotion style — the code must fall back to default.
+
+| Role | Voice | Feeling |
+|---|---|---|
+| Friend (default) | `en-US-AriaNeural` | warm, casual |
+| English teacher | `en-US-JennyNeural` | clear, patient |
+| Senior developer | `en-US-GuyNeural` | calm, confident |
+| Coffee barista | `en-US-JasonNeural` | young, friendly |
+| Job interviewer | `en-US-TonyNeural` | serious, formal |
+| Savage friend | `en-US-DavisNeural` | funny, teasing |
+| British friend | `en-GB-RyanNeural` | native UK accent |
+
+### M2.4 — Mood tag → Azure style (the emotion bridge)
+`core/domain/VoiceStyle.ts` holds this map. The agent strips the tag and sends SSML.
+
+| Mood tag | Azure style | Degree |
+|---|---|---|
+| `cheerful` | `cheerful` | 1.2 |
+| `excited` | `excited` | 1.3 |
+| `sad` | `sad` | 1.0 |
+| `angry` | `angry` | 0.9 |
+| `whisper` | `whispering` | 1.0 |
+| `friendly` | `friendly` | 1.1 |
+| `serious` | *(default, no style)* | — |
+| `calm` | *(default, no style)* | — |
+| `teasing` | *(default, no style)* | — |
+| `curious` | *(default, no style)* | — |
+| `surprised` | `excited` | 0.8 |
+| `sympathetic` | *(default, no style)* | — |
+
+Example SSML the `AzureVoice` adapter builds:
+
+```xml
+<speak version="1.0" xmlns:mstts="https://www.w3.org/2001/mstts">
+  <voice name="en-US-AriaNeural">
+    <mstts:express-as style="cheerful" styledegree="1.2">
+      Oh nice, you finally said that right!
+    </mstts:express-as>
+  </voice>
+</speak>
+```
+
+### M2.5 — Switch character mid-call
+- Switch = swap the voice + the prompt in the running session (`SwitchCharacter` use-case).
+- "Keep the same voice" toggle = skip the voice swap.
+
+**Done when:** two characters sound clearly different, and the emotion is audible in both.
+
+---
+
+## M3 — Memory ("continue an old session")
+
+**Goal:** Duke remembers what we talked about.
+
+### Steps
+1. **Save a session.** On call end: write `sessions` + all `turns`.
+2. **Summarize.** One extra LLM call (cheap) that returns JSON:
+   ```json
+   { "topic": "job interview practice",
+     "summary": "We practised past tense and small talk.",
+     "mistakes": ["I finish → I finished", "He don't → He doesn't"],
+     "newWords": ["shipped", "deadline", "code review"] }
+   ```
+   Save it, and save `corrections` + `vocabulary` rows.
+3. **Build a MemoryCard** in core (small, max ~150 words).
+4. **Continue.** `POST /sessions/:id/continue` → new call + the MemoryCard is
+   added to the prompt. **Never** reload the whole transcript.
+5. **Working memory.** Keep the last ~12 turns in Redis during the call.
+
+**Done when:** ending a call saves it, History shows it, and "Continue" starts a new
+call where the character clearly remembers the old topic.
+
+---
+
+## M4 — The 8 screens (wire the UI)
+
+**Goal:** the dark-console design becomes a real app.
+
+### Steps
+1. **Design system is already wired** from M0 (tokens → CSS variables, fonts, shadcn).
+   Use **shadcn/ui** components everywhere — don't hand-build buttons, sheets or toggles.
+2. **Data hooks first.** In `lib/api/` write one **TanStack Query** hook per resource:
+   - reads: `useCharacters`, `useCharacter`, `useSessions`, `useSession`, `useUsage`
+   - writes: `useCreateCharacter`, `useUpdateCharacter`, `useStartCall`, `useEndCall`
+
+   Every screen uses these hooks. **No raw `fetch` inside a screen** — loading, errors and
+   retries live in the hooks.
+3. Build the screens in this order — **each one wired before the next**:
+
+| # | Screen | shadcn pieces | TanStack Query |
+|---|---|---|---|
+| 1 | Home | Card, Button, Avatar, Badge | `useCharacters` |
+| 2 | Create Character | Input, Textarea, Select, Switch | `useCreateCharacter` |
+| 3 | Active Call | Button, Avatar, ScrollArea | `useStartCall` / `useEndCall` |
+| 4 | Switch Character | **Sheet**, RadioGroup, Switch | `useSwitchCharacter` |
+| 5 | Reading Practice | Card, Button, Progress | `useCharacters` |
+| 6 | History | Card, Badge, ScrollArea | `useSessions` |
+| 7 | Session Detail | Card, Badge, Separator, **Dialog** | `useSession` |
+| 8 | Settings | Switch, Select, RadioGroup, Dialog | `useUsage` |
+
+4. Use **Sonner** (shadcn's toast) for "character saved", "call ended", and errors.
+5. Add the **PWA** bits: `manifest.json` + icons, so it installs on the phone.
+
+> ⚠️ **Match the pen, not the shadcn default.** Right after `init`, shadcn looks neutral
+> grey with soft corners. Set `--primary`, `--radius` and the dark values from the token
+> table in `architecture.md §4`, or the app will look like "shadcn", not like Duke.
+> Remember the name trap: our green is `--primary`, **not** `--accent`.
+
+**Done when:** I can create a character on my phone and have a full call, start to finish.
+
+---
+
+## M5 — Safety, budget, and deploy
+
+### M5.1 — SavageGuard (kind teasing only)
+- Put the rule **in the prompt** *and* check the output.
+- **Allowed:** teasing the mistake, funny exaggeration about the sentence, playful jokes.
+- **Never:** looks, family, identity, religion, intelligence, or anything cruel.
+- If the filter catches a bad line → **rewrite it once**, then fall back to a safe reply.
+
+> Silent note: *I am the only user for now*, but the rule is written in the domain so it
+> can never be skipped later.
+
+### M5.2 — BudgetGuard (never cross into paid)
+| Limit | Value | Action at 90% |
+|---|---|---|
+| LiveKit | 1,000 min/month | warn, shorten replies |
+| Azure | 500k chars/month | warn, serve more from the **TTS audio cache** |
+| Per call | 30 min max | soft stop with a friendly goodbye |
+
+Also: a `usage_ledger` row per call, and cache greetings/fillers in Redis so they cost
+**0 Azure characters**.
+
+### M5.3 — Deploy to the VPS
+1. SSH in. Create a user, update the system.
+2. Install Docker + Compose.
+3. `git clone` the repo to `/opt/duke`.
+4. Put the secrets in `/opt/duke/.env` (never in git).
+5. `docker compose up -d --build` → web + API + agent.
+6. Point the domain at the VPS; **Caddy** gets the HTTPS certificate by itself.
+7. Firewall: allow **22, 80, 443** only (`ufw`).
+8. Add `GET /api/health` and a simple uptime check.
+9. Backup: Supabase handles the DB backup (or a nightly `pg_dump` if self-hosted).
+10. Update flow: `git pull && docker compose up -d --build`.
+
+**Done when:** I open my domain on my phone, create a character, and have a call —
+with the agent running on **my VPS**, and no service asking for money.
+
+---
+
+## 5. The whole plan on one page
+
+- [ ] **Keys** — LiveKit, Deepgram, Groq, Azure, Supabase, Upstash
+- [ ] **M0** — monorepo + core + ports + local Postgres/Redis
+- [ ] **M1** — LiveKit ✅ → Deepgram ✅ → Groq ✅ → Azure ✅ → connect the actor
+- [ ] **M2** — characters + role prompt + voice map + mood → style + switch
+- [ ] **M3** — save sessions + summarizer + MemoryCard + Continue
+- [ ] **M4** — the 8 screens, wired one by one + PWA
+- [ ] **M5** — SavageGuard + BudgetGuard + deploy to the VPS
+
+---
+
+## 6. Risks (and the plan for each)
+
+| Risk | What we do |
+|---|---|
+| Azure voice list is not what we guessed | Confirm voices **in M2.1** before wiring the map |
+| A voice does not support a style | Code checks a per-voice style list → falls back to default |
+| Delay feels too long | Tune the VAD silence delay and shorten LLM replies |
+| We hit a free limit | `BudgetGuard` warns at 90% and degrades gracefully |
+| A provider goes down | Swap the adapter (ports make this a one-file change) |
+| VPS goes down | The app is stateless; restart with `docker compose up -d` |
+| Keys leak | Keys live only in `.env` on the server + password manager |
+
+---
+
+## 7. What we do NOT build (yet)
+
+- Real login (anonymous device ID is enough at first)
+- Payments / subscriptions
+- A mobile native app (the PWA is enough)
+- Self-hosting any AI model (decision 1: 100% online)
+- Long-term semantic memory with pgvector (nice, but later)
+
+---
+
+*Next step after this plan: scaffold the repo (M0) — only after I say "go".*

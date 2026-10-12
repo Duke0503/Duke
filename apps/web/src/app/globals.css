@@ -1,0 +1,37 @@
+@import "tailwindcss";
+
+/* Fonts -> Tailwind v4 utilities: font-display, font-body, font-mono */
+@theme {
+  --font-display: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+
+/*
+ * Duke design tokens — mirror of duke.pen.
+ * Kept in sync by hand for now; the shadcn mapping table lives in
+ * docs/architecture.md §4.
+ */
+:root {
+  --background: #0b0f12;
+  --card: #131a1f;
+  --card-2: #182026;
+  --line: #242e35;
+  --ink: #e7eef0;
+  --ink-2: #7c8a92;
+  --accent: #5ce0a0;
+  --accent-ink: #06231a;
+  --danger: #e5484d;
+  --ember: #f08a3c;
+  --sage: #5ab4d6;
+  --moss: #7be8a8;
+
+  --radius: 12px;
+}
+
+@layer base {
+  html,
+  body {
+    height: 100%;
+  }
+}
