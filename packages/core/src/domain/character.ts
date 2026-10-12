@@ -9,6 +9,13 @@ export function isFeedbackStyle(value: string): value is FeedbackStyle {
   return (FEEDBACK_STYLES as readonly string[]).includes(value);
 }
 
+/** Friendly labels for the UI and the prompt. */
+export const FEEDBACK_STYLE_LABELS: Readonly<Record<FeedbackStyle, string>> = {
+  "just-talk": "Just talk",
+  "quiet-tips": "Quiet tips",
+  "correct-aloud": "Correct out loud",
+};
+
 /** A named AI friend the user created. */
 export interface Character {
   readonly id: CharacterId;
@@ -23,7 +30,16 @@ export interface Character {
   readonly voiceId: string;
   readonly accent: string;
   readonly feedbackStyle: FeedbackStyle;
+  /**
+   * Playful roasting on/off. When true the prompt allows teasing the *mistake*,
+   * and the SavageGuard rule is enforced on the way out. Never real insults.
+   */
+  readonly savage: boolean;
   readonly avatarUrl: string | null;
   readonly defaultTopic: string | null;
   readonly createdAt: Date;
+}
+
+export function isSavage(character: Character): boolean {
+  return character.savage === true;
 }

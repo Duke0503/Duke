@@ -10,7 +10,14 @@
   },
   "dependencies": {
     "@duke/core": "workspace:*",
-    "@duke/shared": "workspace:*"
+    "@duke/shared": "workspace:*",
+    "@livekit/agents": "^1.9.2",
+    "@livekit/agents-plugin-azure": "^1.9.2",
+    "@livekit/agents-plugin-deepgram": "^1.9.2",
+    "@livekit/agents-plugin-openai": "^1.9.2",
+    "@livekit/agents-plugin-silero": "^1.9.2",
+    "@livekit/rtc-node": "^1.1.0",
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",

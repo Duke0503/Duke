@@ -4,7 +4,9 @@
   "private": true,
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "dev": "tsc -p tsconfig.build.json --watch --preserveWatchOutput",
@@ -12,10 +14,15 @@
   },
   "dependencies": {
     "@duke/core": "workspace:*",
-    "@duke/shared": "workspace:*"
+    "@duke/shared": "workspace:*",
+    "drizzle-orm": "^0.45.4",
+    "ioredis": "^6.0.0",
+    "livekit-server-sdk": "^2.19.1",
+    "postgres": "^3.4.9",
+    "zod": "^4.6.6"
   },
   "devDependencies": {
+    "@types/node": "^26.6.5",
     "typescript": "^7.0.2"
   }
 }
-
