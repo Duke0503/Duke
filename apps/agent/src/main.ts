@@ -12,7 +12,9 @@
  * Nothing here re-derives the personality or the voice. The brief is the single source of
  * truth, written by the API, so there is one implementation of the prompt rules and not two.
  *
- * It only makes OUTBOUND connections, so it needs no open port on the VPS.
+ * It only makes OUTBOUND connections, so it needs no open port on the VPS. The one server it
+ * does start (the framework's own health/load endpoint) is pinned to `127.0.0.1` below, so it
+ * is reachable from this machine and nowhere else.
  *
  * Run it with `node dist/main.js start`. That `start` is the framework's own subcommand, not a
  * npm script: without it the CLI prints its help and exits.
@@ -283,5 +285,11 @@ cli.runApp(
     // that is dispatched by name is never sent to the room: the call connects and nobody answers,
     // with no error on either side. See DEFAULT_AGENT_NAME in @duke/adapters.
     agentName: optionalEnv("LIVEKIT_AGENT_NAME", DEFAULT_AGENT_NAME),
+    // The framework starts a small HTTP server for its own bookkeeping (load reports, the
+    // in-flight job list). It binds **every interface** by default, which on this machine means
+    // the home Wi-Fi can reach it — and opened for no reason at all, since LiveKit Cloud talks to
+    // this process over an *outbound* WebSocket and never dials in. Pinned to loopback: the port
+    // stays useful locally and stops being a way in from outside.
+    host: "127.0.0.1",
   }),
 );

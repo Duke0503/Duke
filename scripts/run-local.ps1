@@ -138,7 +138,23 @@ function Start-Duke {
 
     $records | ConvertTo-Json | Set-Content -Path $pidFile -Encoding utf8
 
-    Start-Sleep -Seconds 6
+    # Wait for what can be asked, instead of guessing with a sleep. The API takes around twenty
+    # seconds to map its routes and open its port, so a flat six-second pause made a perfectly
+    # healthy API report "no answer" — which reads exactly like a crash.
+    $deadline = (Get-Date).AddSeconds(60)
+    foreach ($service in $services | Where-Object { $_.Ready }) {
+        while ((Get-Date) -lt $deadline) {
+            $answered = $true
+            try {
+                $null = Invoke-WebRequest -Uri $service.Ready -TimeoutSec 3 -UseBasicParsing
+            } catch {
+                $answered = $false
+            }
+            if ($answered) { break }
+            Start-Sleep -Milliseconds 500
+        }
+    }
+
     Show-Status
 }
 

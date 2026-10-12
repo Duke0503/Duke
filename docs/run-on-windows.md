@@ -16,7 +16,7 @@ api    99 MB      agent  134 MB      web  78 MB      =  310 MB
 | Service | What it is | Listens on | Reachable from |
 |---|---|---|---|
 | `api` | NestJS. Characters, sessions, LiveKit tokens. | `API_PORT` (4478) | `127.0.0.1` only |
-| `agent` | the voice worker | nothing | it only dials out to LiveKit |
+| `agent` | the voice worker | a health endpoint on `8081`, loopback only | nothing outside this machine |
 | `web` | the screens you open | `WEB_PORT` (4477) | `127.0.0.1` only, plus the tunnel |
 
 Three processes and no Docker. The ports are read from `.env`, never hardcoded, so the launcher
@@ -155,6 +155,15 @@ adding this hostname to the existing VPS tunnel would point at the VPS, not at y
 
    That installs a Windows service that starts with the machine. It replaces the temporary
    tunnel from 5.1 — stop that one first.
+
+   Then confirm it is alive (no Administrator needed just to look):
+
+   ```powershell
+   Get-Service cloudflared
+   ```
+
+   It should say **Running**, and it starts by itself from now on — so `friend.duke.io.vn` is up
+   whenever this PC is on, with nothing to click.
 4. Back in the dashboard, open the tunnel → **Public Hostnames** → **Add a public hostname**:
 
    | Field | Value |
@@ -166,8 +175,20 @@ adding this hostname to the existing VPS tunnel would point at the VPS, not at y
 
    Save. Cloudflare creates the DNS record itself — nothing to add by hand.
 
-Write `127.0.0.1`, not `localhost`: the web app is bound to the IPv4 loopback on purpose, and
-`localhost` can resolve to `::1` first and miss it.
+`127.0.0.1` is the safer spelling when typing by hand — the web app is bound to the IPv4 loopback
+on purpose, and `localhost` may try `::1` first. It then falls back to IPv4, so `localhost` works
+too: this is a preference, not a rule, and a hostname that already works is not worth changing.
+
+**Prove it, without opening a browser:**
+
+```powershell
+curl.exe -s https://friend.duke.io.vn/api/health
+```
+
+`{"ok":true}` means the whole chain is live: Cloudflare → the tunnel on this PC → the web app →
+the API. That one URL is public on purpose (the API marks it `@Public()` and the web gate lets it
+past), so it is also what an uptime monitor should watch. A `502` instead means the hostname is
+configured but no connector is running — install the service below.
 
 **The same thing from the command line, if you prefer files to clicking:**
 
@@ -254,7 +275,9 @@ WEB_ORIGIN=https://friend.duke.io.vn
   prompt stay server-side.
 - **The web app is bound to `127.0.0.1`.** Your Wi-Fi cannot see it; only the tunnel can, because
   the tunnel runs on this machine.
-- **The voice worker listens on nothing.** It dials out to LiveKit Cloud.
+- **The voice worker listens only on loopback.** It dials out to LiveKit Cloud, so nothing needs
+  to reach it — but the framework does start a small HTTP endpoint of its own, and by default
+  that binds every interface. `apps/agent/src/main.ts` pins it to `127.0.0.1`.
 - **The API is on loopback too.** `run-local.ps1` starts it with `API_HOST=127.0.0.1`, so
   `http://<your-pc>:4478` does not answer to your Wi-Fi — and Windows Firewall's old allow rules
   for `node.exe` no longer have anything to let through. (Docker leaves `API_HOST` unset and

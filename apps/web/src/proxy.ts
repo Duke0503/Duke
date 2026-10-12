@@ -51,7 +51,13 @@ export const config = {
      *   _next/static, _next/image  the app's own files
      *   favicon.ico, icon.svg, robots.txt, manifest.webmanifest  the tab and the install prompt
      *   login, api/auth/           the door itself
+     *   api/health                 the probe, which the API already marks `@Public()`
+     *
+     * `api/health` is here for a reason worth keeping: it is the one URL that says "Duke is up"
+     * without a cookie, so an uptime monitor (or you, at 2am) can ask the real domain. It answers
+     * `{"ok":true}` and nothing else. Leaving it out would mean the API and the web disagreed
+     * about what "public" means.
      */
-    "/((?!_next/static|_next/image|favicon.ico|icon.svg|robots.txt|manifest.webmanifest|login|api/auth/).*)",
+    "/((?!_next/static|_next/image|favicon.ico|icon.svg|robots.txt|manifest.webmanifest|login|api/auth/|api/health).*)",
   ],
 };
