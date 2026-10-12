@@ -171,7 +171,7 @@ delete them.
 |---|---|
 | `https://` does not load at all | `logs -f caddy`. Usually the DNS is not pointing here yet, or port 80 is blocked |
 | The page loads, then "Can not reach the server" | `logs -f api`, and `curl localhost:3001/api/health` inside the container |
-| The call connects, then silence | `logs -f agent`. The usual three: a wrong Azure region, a used-up Deepgram credit, or `LIVEKIT_*` not matching the project |
+| The call connects, then silence | `logs -f agent`. Three usual causes: a wrong Azure region, a Deepgram credit that is used up, or an agent that joined under a different name than the API dispatched to. The name comes from `LIVEKIT_AGENT_NAME` and both ends default it to `duke` |
 | "The server is missing a key" on any screen | the phone is showing a real 503: run `pnpm run doctor` and paste what it names |
 | Nothing is logged at all | the volume owns a folder the container cannot write to. `docker compose ... down -v` and up again (this deletes the log volumes) |
 

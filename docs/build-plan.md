@@ -453,7 +453,7 @@ Also: a `usage_ledger` row per call, and cache greetings/fillers in Redis so the
 **Done when:** I open my domain on my phone, create a character, and have a call —
 with the agent running on **my VPS**, and no service asking for money.
 
-### What was built (and the four places the plan above was incomplete)
+### What was built (and what the plan did not know)
 
 **SavageGuard, second line of defence.** `checkSavage` existed in core and was never called.
 It is now wired into the reply stream in `apps/agent/src/savage-filter.ts`:
@@ -498,6 +498,16 @@ in both `docs/deploy.md` and the script.
 Also: the PWA manifest and the app icon (so the phone can install it instead of opening a tab),
 and `DEEPGRAM_MODEL` defaulted to `nova-3` in the agent — it said `nova-2` while the adapter, the
 key list and `.env.example` all said `nova-3`.
+
+**One silent failure found by reading the SDK.** The API creates each room with
+`RoomAgentDispatch({ agentName })`, and the agents SDK decides the worker's own name like this:
+`LIVEKIT_AGENT_NAME_OVERRIDE`, else the `agentName` option, else `LIVEKIT_AGENT_NAME`, else the
+**empty string**. Duke passed no `agentName`, and `.env.example` happens to set
+`LIVEKIT_AGENT_NAME=duke`, so it worked — until someone blanked that line, at which point the
+worker registers unnamed, the dispatch by name finds nobody, and the call connects, plays, and is
+answered by silence. No error on either side. The agent now passes `agentName` explicitly from
+`DEFAULT_AGENT_NAME` in `@duke/adapters`, the same constant the dispatch uses: the two ends cannot
+disagree, whatever is in the environment.
 
 > Not verified: **the images were never built.** No Docker engine was available. The Dockerfiles
 > take the conservative shape (Debian not Alpine, `--frozen-lockfile`, the runtime stage doing its

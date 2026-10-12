@@ -18,7 +18,21 @@ import { AppError, optionalEnv, requireEnv } from "@duke/shared";
 import { AccessToken, RoomAgentDispatch, RoomServiceClient } from "livekit-server-sdk";
 
 const DEFAULT_TOKEN_TTL_SECONDS = 900;
-const DEFAULT_AGENT_NAME = "duke";
+
+/**
+ * The name the worker registers under, and the name the API asks LiveKit to dispatch.
+ *
+ * Exported because **both ends have to agree on it, and LiveKit does not tell you when they do
+ * not.** The API creates each room with `RoomAgentDispatch({ agentName })`; if the worker
+ * registered under a different name — or under none at all — the room is created, the phone
+ * connects, the learner talks, and nothing ever answers. No error, on either side.
+ *
+ * The agents SDK falls back to its own `LIVEKIT_AGENT_NAME` lookup and, failing that, to the
+ * empty string, so the agent passes this constant in explicitly rather than trusting the
+ * environment to be set the same way twice.
+ */
+export const DEFAULT_AGENT_NAME = "duke";
+
 /** Keep an empty room alive 10 minutes: long enough to reload the page and come back. */
 const EMPTY_ROOM_TIMEOUT_SECONDS = 600;
 

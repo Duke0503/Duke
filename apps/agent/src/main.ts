@@ -27,7 +27,7 @@ import type { JobContext, JobProcess } from "@livekit/agents";
 import { STT as DeepgramStt } from "@livekit/agents-plugin-deepgram";
 import { LLM } from "@livekit/agents-plugin-openai";
 import { VAD as SileroVad } from "@livekit/agents-plugin-silero";
-import { createAdapters, type Adapters } from "@duke/adapters";
+import { DEFAULT_AGENT_NAME, createAdapters, type Adapters } from "@duke/adapters";
 import {
   createLogger,
   inspectEnv,
@@ -255,5 +255,10 @@ cli.runApp(
     agent: __filename,
     // One idle process kept warm; more would just hold RAM on a small VPS.
     numIdleProcesses: Number(optionalEnv("LIVEKIT_IDLE_PROCESSES", "1")),
+    // Named explicitly, from the same constant the API dispatches with. The SDK would otherwise
+    // read `LIVEKIT_AGENT_NAME` itself and fall back to an **empty** name, and an unnamed worker
+    // that is dispatched by name is never sent to the room: the call connects and nobody answers,
+    // with no error on either side. See DEFAULT_AGENT_NAME in @duke/adapters.
+    agentName: optionalEnv("LIVEKIT_AGENT_NAME", DEFAULT_AGENT_NAME),
   }),
 );
