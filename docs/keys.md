@@ -86,20 +86,37 @@ REDIS_URL=rediss://default:...@...upstash.io:6379
 
 ### 4. Supabase — https://supabase.com/dashboard
 
+Duke uses Supabase for exactly one thing: **Postgres**. The API speaks to it directly, so the only
+value you need is the **connection string**. The dashboard also shows a project URL and an API key
+(`sb_publishable_...`, formerly `anon`) — those are for Supabase's own client libraries, and Duke
+does not have one. If you are copying something that starts with `NEXT_PUBLIC_`, that is the wrong
+page: those are for a browser, and Duke's database is only ever touched by the server.
+
 1. Sign up, then **New project**. Name `duke`, choose a region, and set a **database password**
-   (save it somewhere — you need it in a moment).
+   (save it — you need it in a moment).
 2. Wait about two minutes while the database starts.
-3. **Connect** (top of the page, or Project Settings → Database) → the **Connection string** tab →
-   copy the **URI**.
+3. **Connect** (top of the page, or Project Settings → Database) → the **Connection string** tab.
+   There are two lines worth having, and the difference is the port:
+   - **Transaction pooler, port `6543`** — this is `DATABASE_URL`, what the app runs on;
+   - **Session pooler, port `5432`** — the same host, for one-off schema work.
 
 ```
-DATABASE_URL=postgresql://postgres:YOUR-PASSWORD@db.xxxx.supabase.co:5432/postgres
+DATABASE_URL=postgresql://postgres.xxxxx:YOUR-PASSWORD@aws-0-eu-west-1.pooler.supabase.com:6543/postgres
 ```
 
-- Replace `YOUR-PASSWORD` with the password from step 1. If the password has an `@` or a `#` in it,
-  change the password to something simple (letters and numbers) — those characters break a URL.
-- The dashboard shows a pooled URL on port `6543` as well. Either works. If `pnpm run db:push`
-  ever complains while using the pooler, paste the direct one (port `5432`) and try again.
+- Replace `YOUR-PASSWORD` with the password from step 1. If it contains `@`, `#`, `/` or `:`, reset
+  it in Settings → Database to letters and numbers: those characters end the URL early, and the
+  error you get for it names something else entirely.
+- Use the **pooler** host, not `db.xxxxx.supabase.co`. New Supabase projects answer on IPv6 only at
+  the direct host, which a VPS usually cannot reach, and the pooler is the thing that survives
+  connections being recycled.
+- `pnpm run db:push` is the one command that sends DDL, and DDL prefers the session pooler. If it
+  ever refuses, put the other port in front of the command instead of editing the file — a real
+  environment variable wins over `.env`, by design:
+
+```powershell
+$env:DATABASE_URL="postgresql://postgres.xxxxx:YOUR-PASSWORD@aws-0-eu-west-1.pooler.supabase.com:5432/postgres"; pnpm run db:push
+```
 
 ### 5. LiveKit — https://cloud.livekit.io
 
