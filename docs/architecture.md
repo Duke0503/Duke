@@ -232,10 +232,16 @@ The rules, screens and API don't change at all. That is how we stay cheap **and*
 | `Brain` | think and answer | Groq |
 | `Voice` | turn text into emotional speech | Azure |
 | `Transport` | carry live audio | LiveKit |
+| `UserRepository` | turn the anonymous device id into a user | Drizzle + Postgres |
 | `CharacterRepository` | save/load characters | Drizzle + Postgres |
 | `SessionRepository` | save/load sessions and turns | Drizzle + Postgres |
-| `Cache` | fast temporary storage | Upstash Redis |
+| `Cache` | fast temporary storage | Upstash Redis, or a local Redis |
 | `Clock` | "now" (so we can test time) | system clock |
+
+`core` declares the ports; `@duke/adapters` is the only file that knows the provider names.
+`createAdapters()` hands back **lazy** services: nothing connects until the first method call,
+which is why the API can boot and serve `/api/health` with an empty `.env` and then tell you
+exactly which key is missing.
 
 ### Domain entities (the words of Duke)
 
@@ -267,7 +273,7 @@ The rules, screens and API don't change at all. That is how we stay cheap **and*
 ```
 users(id, created_at, ...)
 
-characters(id, user_id, name, role, personality, voice_id, accent,
+characters(id, user_id, name, role, personality, voice_id, accent, savage,
            feedback_style, avatar_url, default_topic, created_at)
 
 sessions(id, character_id, user_id, started_at, ended_at, duration_sec,
@@ -279,19 +285,29 @@ corrections(id, session_id, turn_id, said, fixed, note)
 
 vocabulary(id, session_id, word, meaning)
 
-memories(id, character_id, session_id, kind, content, embedding vector(1536))
+memories(id, character_id, session_id, kind, content)
 
 usage_ledger(id, user_id, month, stt_sec, tts_chars, llm_tokens)
 ```
 
 | Table | Why it exists |
 |---|---|
-| `characters` | the friends you create (name + role + voice + personality) |
+| `characters` | the friends you create (name + role + voice + personality). `savage` is a plain flag: the playful-roast mode is a switch on the Create Character screen, not a separate character. |
 | `sessions` | every call, with its summary |
-| `turns` | the transcript, saved at the end of the call |
+| `turns` | the transcript, saved as the call happens (`index` keeps the order) |
 | `corrections` / `vocabulary` | what to show on the Session Detail screen |
-| `memories` | long-term recall; `embedding` lets us fetch *relevant* old moments |
-| `usage_ledger` | counts seconds and characters → powers **`BudgetGuard`** |
+| `memories` | long-term recall: a short card the next call is given |
+| `usage_ledger` | the month's totals, for the screens. The **live** counters the budget is checked against are Redis keys, not this table. |
+
+**Not built yet:** the `embedding` column on `memories`. Semantic recall ("find the moment we
+talked about X") needs `pgvector` and an embedding model; the memory card is a plain summary
+for now, and a column nobody writes is a column that drifts. The table is shaped so it can be
+added later without moving anything.
+
+Live usage counters are **separate Redis keys**, one per kind
+(`duke:usage:<user>:<month>:sttSec|ttsChars|llmTokens`). `INCRBY` is atomic, so the API and
+the agent can both add to the same month at the same moment without a lock — and without the
+lost update a single read-modify-write JSON blob would give us.
 
 ---
 
@@ -299,14 +315,13 @@ usage_ledger(id, user_id, month, stt_sec, tts_chars, llm_tokens)
 
 | Key | Holds | Why | TTL |
 |---|---|---|---|
-| `session:{id}:turns` | last ~12 turns | instant context mid-call, no DB hit | 2 h |
-| `char:{id}:prompt` | the built system prompt | build once, not every turn | 1 h |
-| `tts:{hash(text+voice+style)}` | audio bytes | **never pay Azure twice for the same sentence** | 30 d |
-| `ratelimit:{user}` | counter | protect the free tiers | 1 min |
-| `usage:{user}:{month}` | seconds + chars | show "X hours left" | 1 month |
+| `duke:session:<id>:brief` | the built prompt, voice and memory for one call | written by the API, read by the agent; one source of truth | 6 h |
+| `duke:usage:<user>:<month>:<kind>` | one counter per kind (`sttSec`, `ttsChars`, `llmTokens`) | show "X hours left"; atomic `INCRBY` from two processes | ~1 month |
+| `ratelimit:<user>` | counter | protect the free tiers | 1 min |
 
-The **TTS audio cache** is the quiet win: greetings, fillers ("hmm", "nice!") and repeated
-corrections are served from Redis and cost **0 Azure characters**.
+`duke:cache:tts:<hash(text+voice+style)>` is on the list but **not built yet** — the quiet win
+for later: greetings, fillers ("hmm", "nice!") and repeated corrections would be served from
+Redis and cost **0 Azure characters**.
 
 ---
 
@@ -322,10 +337,15 @@ you speak ─► Deepgram (STT) ─► Groq (LLM) ─► Azure (TTS) ─► you 
 1. LiveKit sends your mic audio to the agent.
 2. **VAD** decides when you stopped talking (tuned so it does not cut you off).
 3. Deepgram streams the words.
-4. `BuildPrompt` (core) puts together: character personality + memory card + feedback style.
+4. `BuildPrompt` (core) puts together the character's personality, the memory card and the
+   feedback style — **and the API does this, once, before the call**. The result goes into the
+   session brief in Redis. The agent reads it; it does not rebuild it.
 5. Groq answers — **short**, like a phone call — and starts with a **mood tag** (`[[cheerful]]`).
-6. `VoiceStyle` (core) maps the mood tag to an **Azure `mstts:express-as` style**.
-7. Azure streams the emotional voice back into the room.
+6. `MoodTagStripper` (core) takes the tag off the live token stream. It is the *first* thing in
+   the reply, so it is also the thing most likely to be split across two tokens.
+7. `VoiceStyle` (core) maps the mood to an **Azure `mstts:express-as` style**, and Azure speaks
+   the sentence with that emotion. If the voice does not have that style, Azure says no and we
+   say the same line plainly rather than dropping it.
 8. **Barge-in:** if you start talking, the agent stops instantly (LiveKit handles it).
 
 > If the AI ever feels slow, the first thing to tune is the **VAD silence delay** and
@@ -422,22 +442,22 @@ API_PORT
 WEB_ORIGIN
 
 # data
-DATABASE_URL
-REDIS_URL
-NEXT_PUBLIC_SUPABASE_URL
-NEXT_PUBLIC_SUPABASE_ANON_KEY
-SUPABASE_SERVICE_ROLE_KEY        # server only
-UPSTASH_REDIS_REST_URL
-UPSTASH_REDIS_REST_TOKEN
+DATABASE_URL                     # Postgres (Supabase)
+REDIS_URL                        # Upstash "rediss://" or a local "redis://"
 
 # providers
 LIVEKIT_URL
 LIVEKIT_API_KEY
 LIVEKIT_API_SECRET
+LIVEKIT_AGENT_NAME               # optional, default "duke"
+LIVEKIT_TOKEN_TTL                # optional, join-token lifetime
 DEEPGRAM_API_KEY
+DEEPGRAM_MODEL                   # optional, default "nova-2"
 GROQ_API_KEY
+GROQ_MODEL                       # optional, default "llama-3.3-70b-versatile"
 AZURE_SPEECH_KEY
 AZURE_SPEECH_REGION
+AZURE_VOICE                      # optional fallback voice
 ```
 
 `.env.example` is committed and holds every name with an empty value, so anyone can
@@ -445,6 +465,10 @@ set the project up. `.env` itself is git-ignored.
 
 Rule: anything without `NEXT_PUBLIC_` stays on the server. **Never** put a provider key in
 the browser.
+
+Every name above except the ones marked optional is **required**, and `/api/ready`,
+`/api/setup` and the agent's own one-line boot check count them the same way. A missing key
+is never a silent `undefined`: it stops the piece that needed it and says which one to paste.
 
 ---
 
@@ -458,6 +482,17 @@ the browser.
 | **M3 — Memory** | save sessions, Continue button, memory card | an old talk continues naturally |
 | **M4 — App UI** | the 8 dark-console screens wired to the API | full app on the phone |
 | **M5 — Safety + budget** | SavageGuard, BudgetGuard, rate limits, usage screen | cannot cross into paid |
+
+Three things about M1 that are easy to get wrong, written down so they are not rediscovered:
+
+1. **The mood tag is stripped from the live stream, not from the finished reply.**
+   `voice.Agent.llmNode` is overridden: `MoodTagStripper` (in `@duke/core`) holds the first
+   few tokens back until it knows whether a `[[mood]]` is there, sets the Azure emotion, and
+   lets the words through. Stripping per token would speak the two halves of `[[cheerful]]`.
+2. **The agent does not rebuild the prompt.** It reads `duke:session:<id>:brief` from Redis,
+   written by `StartCall`. One implementation of the personality rules, so the two cannot drift.
+3. **`node dist/main.js start`.** `start` is the LiveKit CLI's own subcommand. Without it the
+   CLI prints its help and exits, and `pnpm dev` alone will look like it did nothing.
 
 ---
 
@@ -480,11 +515,17 @@ So every event the API and the agent produce is written as **one JSON line**.
 |---|---|---|
 | Library | **pino** | fastest structured logger for Node |
 | Output 1 | **stdout** | Docker / the log collector owns shipping |
-| Output 2 | **`logs/<service>.<date>.log`** | one file per day, so history survives a restart |
+| Output 2 | **`logs/all/<service>.<date>.log`** | every line, so one file tells the whole story |
+| Output 3 | **`logs/error/<service>.<date>.log`** | errors only, so a failure is one small file to read |
 | Format | JSON in production, pretty in development | `NODE_ENV` decides |
 | Level | `LOG_LEVEL` (`debug` in dev, `info` in prod) | change behaviour without editing code |
 | Rotation | **pino-roll**, daily | e.g. `duke-api.2026-10-12.1.log` |
-| Archive | gzip into `logs/archive/*.gz`, delete after `LOG_RETENTION_DAYS` | finished days stop costing disk |
+| Archive | gzip into `logs/archive/all/*.gz` and `logs/archive/error/*.gz`, delete after `LOG_RETENTION_DAYS` | finished days stop costing disk |
+
+Two folders, not one file with a filter: when something breaks you open
+`logs/error/duke-api.2026-10-12.1.log` and there is nothing in it but the problem. The `all`
+folder is there when you need the line before it. Both are written by the same logger, both
+rotate by date, both are archived.
 
 `logs/` is in `.gitignore`. On the VPS, point `LOG_DIR` at a **mounted volume**, otherwise the
 files die with the container.
@@ -523,12 +564,17 @@ lines and our logs share one format, one level and one file — instead of two s
 
 `startLogMaintenance()` runs once at boot and then every 6 hours:
 
-1. gzip every log file whose date is **not** today → `logs/archive/<name>.log.gz`
-2. delete those originals
-3. delete archives older than `LOG_RETENTION_DAYS` (default 14)
+1. sweep `logs/all/`, `logs/error/` (and any file left over from the old flat layout)
+2. gzip every log file whose date is **not** today → `logs/archive/all/<name>.log.gz`
+   or `logs/archive/error/<name>.log.gz`
+3. delete those originals
+4. delete archives older than `LOG_RETENTION_DAYS` (default 14)
 
 Today's file is never touched — pino still has it open. A failed pass is logged and ignored;
 log housekeeping must never take the app down.
+
+The agent runs it in its **parent** worker only, not in the per-call child processes: two
+processes gzipping the same file at the same moment is how an archive gets corrupted.
 
 ---
 

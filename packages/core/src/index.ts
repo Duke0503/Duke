@@ -1,6 +1,7 @@
 export * from "./domain/ids";
 export * from "./domain/character";
 export * from "./domain/mood";
+export * from "./domain/mood-stream";
 export * from "./domain/voice";
 export * from "./domain/session";
 export * from "./domain/session-summary";

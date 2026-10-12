@@ -209,6 +209,28 @@ The voice agent makes **outbound** connections only. No extra ports, no firewall
 2. Tell it: STT = Deepgram, LLM = Groq, TTS = Azure.
 3. Start the agent → join a room → talk.
 
+How `apps/agent` is built (the shape that was chosen):
+
+| File | What it does |
+|---|---|
+| `main.ts` | `defineAgent` (VAD prewarm + `entry`), the per-call wiring, and `cli.runApp` |
+| `brief.ts` | reads `duke:session:<id>:brief` from Redis — the session id is in the room name |
+| `azure-tts.ts` | Azure as a LiveKit `tts.TTS`; wraps the `Voice` port from `@duke/adapters` |
+| `duke-agent.ts` | the `voice.Agent` subclass; overrides `llmNode` to strip the mood tag |
+| `mood-filter.ts` | that override, as a `TransformStream` over the token stream |
+| `recorder.ts` | turns → Postgres, usage → Redis counters |
+
+Run it with **`node dist/main.js start`** (or `pnpm --filter @duke/agent serve` in watch mode).
+The `start` is the LiveKit CLI's own subcommand. Without it the CLI prints its help and exits,
+so a bare `node dist/main.js` looks like it did nothing at all.
+
+Two things the agent deliberately does **not** do:
+
+- It does not build the prompt. `StartCall` in the API renders it once and leaves it in Redis,
+  so there is one implementation of the personality rules and the two cannot drift.
+- It does not talk to the browser. It only makes **outbound** connections, so it needs no open
+  port on the VPS.
+
 **Done when:** I speak → the character answers in an emotional voice, and I can
 interrupt it while it talks (barge-in), with no more than ~1.5 s delay.
 
