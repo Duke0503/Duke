@@ -53,7 +53,9 @@ cp .env.example .env
 nano .env
 ```
 
-Fill in every blank line. `.env.example` says where to copy each one from. Two things to watch:
+Fill in every blank line. `.env.example` says where to copy each one from, and
+**[`docs/keys.md`](keys.md)** walks through all six accounts one at a time — what to click, what to
+copy, and which line it goes on. Two things to watch:
 
 - **`DOMAIN`** — at the bottom. Put your domain, `duke.example.com`. Caddy reads it.
 - **`AZURE_SPEECH_REGION`** — just the region word, like `eastus`. Not a URL, not the resource

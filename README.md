@@ -4,7 +4,7 @@ A phone-call style app for practising English out loud, with **one AI friend who
 become many characters** (teacher, senior developer, barista, savage friend, ...) and
 speaks with real emotion — on free tiers.
 
-- **Docs:** [`docs/architecture.md`](docs/architecture.md) · [`docs/build-plan.md`](docs/build-plan.md) · [`docs/deploy.md`](docs/deploy.md)
+- **Docs:** [`docs/architecture.md`](docs/architecture.md) · [`docs/build-plan.md`](docs/build-plan.md) · [`docs/deploy.md`](docs/deploy.md) · [`docs/keys.md`](docs/keys.md)
 - **Design source:** [`duke.pen`](duke.pen) (pen.dev)
 
 ## Repo layout
@@ -35,7 +35,7 @@ Dependencies point **inward only**: `apps/* -> packages/adapters -> packages/cor
 
 ```bash
 pnpm install
-cp .env.example .env        # then fill in your keys
+cp .env.example .env        # then fill in your keys — docs/keys.md has all six accounts
 pnpm run doctor             # tells you exactly which key is still missing
 pnpm build                  # builds packages + apps
 
