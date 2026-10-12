@@ -117,13 +117,16 @@ The voice agent makes **outbound** connections only. No extra ports, no firewall
    packages/adapters  packages/shared
    infra
    ```
-5. **Frontend foundation** (in `apps/web`):
+5. **Frontend foundation** (in `apps/web`) — ✅ done:
    - Scaffold Next.js (App Router, TypeScript) + **Tailwind CSS v4**.
-   - `npx shadcn@latest init` → choose **CSS variables**, dark by default.
-   - In `globals.css`, paste the **token → CSS variable** table from
-     `architecture.md §4` (`--background`, `--card`, `--primary`, `--primary-foreground`, ...).
+   - `npx shadcn@latest init` (CSS variables).
+   - Re-map the **token → CSS variable** table from `architecture.md §4`. The CLI writes
+     its own **light** theme into `:root` — we overwrite all of it. Duke is dark only, so
+     there is no `.dark` block; the palette is declared as `--duke-*` and mapped to the
+     shadcn names (this is what dodges the `--accent` collision).
    - Load the 3 fonts (Space Grotesk, IBM Plex Sans, IBM Plex Mono) and add the
      `.font-display` / `.font-body` / `.font-mono` classes.
+   - Pin the radius steps to the pen scale (see the notes table below).
    - Add the **TanStack Query** provider (`QueryClientProvider`) in the root layout.
 6. **Backend foundation** (in `apps/api`) — **logging comes first**:
    - **Logging** (see `architecture.md §17`): pino to stdout **and** `logs/<service>.<date>.log`,
@@ -163,6 +166,11 @@ The voice agent makes **outbound** connections only. No extra ports, no firewall
 | API dev loop | two scripts: `dev` (`tsc --watch`) + `serve` (`node --watch dist/main.js`) | gets us live reload without another dependency. |
 | Log files | `logs/` is **git-ignored**; the folder is created at runtime | daily files are local state, not source. On the VPS `LOG_DIR` must point at a mounted volume. |
 | `.env.example` | **committed**, all keys present with empty values | so anyone cloning the repo knows exactly what to configure. `.env` is ignored. |
+| `shadcn init` flags | `--base radix -p nova` — base **colour** is no longer a flag | shadcn v5 renamed `-b` to mean the *component library* (radix/base/aria) and moved colours into presets. Without `-p` it hangs on an interactive menu. |
+| shadcn v5 style | imports `shadcn/tailwind.css`, `cn` from the **`cn`** package, `radix-ui` (not `@radix-ui/react-*`) | the `radix-nova` style ships its keyframes and variants from the `shadcn` package instead of copying them into `globals.css`. |
+| Duke palette | declared as `--duke-*`, **then** mapped to the shadcn names | avoids the `--accent` trap, and keeps `duke.pen` readable as the source of truth. |
+| Corner radius | steps **pinned** (`--radius-md/lg: 12px`, `--radius-xl/2xl: 20px`) | shadcn derives 6 steps from `--radius`; the derived values (9.6px buttons, 16.8px cards) are off our 3-token scale. |
+| Dark mode | no `.dark` block — everything lives in `:root` | Duke has no light mode, so nothing to switch. `<html class="dark">` is kept only so `dark:` utilities resolve. |
 
 ---
 

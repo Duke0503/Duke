@@ -1,31 +1,95 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
 
-/* Fonts -> Tailwind v4 utilities: font-display, font-body, font-mono */
+@custom-variant dark (&:is(.dark *));
+
+/* ------------------------------------------------------------------- fonts
+ * Space Grotesk  -> display / headlines
+ * IBM Plex Sans  -> body
+ * IBM Plex Mono  -> the `// TECHNICAL LABELS`
+ *
+ * `--font-sans` is what shadcn components inherit, so it points at the body font.
+ */
 @theme {
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
   --font-display: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
   --font-body: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, monospace;
 }
 
-/*
- * Duke design tokens — mirror of duke.pen.
- * Kept in sync by hand for now; the shadcn mapping table lives in
- * docs/architecture.md §4.
+/* ------------------------------------------------------------------- theme
+ * Duke has NO light mode. Every value lives in `:root`, and `.dark` on <html>
+ * only exists so that `dark:` utilities still resolve.
+ *
+ * The palette is declared once with a `--duke-` prefix (so the raw values stay
+ * readable in components) and then mapped onto the names shadcn expects.
+ *
+ * NAME TRAP — do not "fix" this:
+ *   our green is `--duke-accent`, but shadcn's `--accent` is the menu hover /
+ *   selected-item background. So our green becomes shadcn `--primary`, and
+ *   shadcn `--accent` becomes our `$card-2`.
+ * See docs/architecture.md §4 for the full mapping table.
  */
 :root {
-  --background: #0b0f12;
-  --card: #131a1f;
-  --card-2: #182026;
-  --line: #242e35;
-  --ink: #e7eef0;
-  --ink-2: #7c8a92;
-  --accent: #5ce0a0;
-  --accent-ink: #06231a;
-  --danger: #e5484d;
-  --ember: #f08a3c;
-  --sage: #5ab4d6;
-  --moss: #7be8a8;
+  /* ---- Duke palette (source of truth: duke.pen) ---- */
+  --duke-bg: #0b0f12;
+  --duke-card: #131a1f;
+  --duke-card-2: #182026;
+  --duke-line: #242e35;
+  --duke-ink: #e7eef0;
+  --duke-ink-2: #7c8a92;
+  --duke-accent: #5ce0a0;
+  --duke-accent-ink: #06231a;
+  --duke-danger: #e5484d;
+  --duke-ember: #f08a3c;
+  --duke-sage: #5ab4d6;
+  --duke-moss: #7be8a8;
 
+  /* ---- mapped onto shadcn's names ---- */
+  --background: var(--duke-bg);
+  --foreground: var(--duke-ink);
+
+  --card: var(--duke-card);
+  --card-foreground: var(--duke-ink);
+
+  --popover: var(--duke-card);
+  --popover-foreground: var(--duke-ink);
+
+  --primary: var(--duke-accent);
+  --primary-foreground: var(--duke-accent-ink);
+
+  --secondary: var(--duke-card-2);
+  --secondary-foreground: var(--duke-ink);
+
+  --muted: var(--duke-card-2);
+  --muted-foreground: var(--duke-ink-2);
+
+  --accent: var(--duke-card-2);
+  --accent-foreground: var(--duke-ink);
+
+  --destructive: var(--duke-danger);
+
+  --border: var(--duke-line);
+  --input: var(--duke-line);
+  --ring: var(--duke-accent);
+
+  --chart-1: var(--duke-accent);
+  --chart-2: var(--duke-sage);
+  --chart-3: var(--duke-ember);
+  --chart-4: var(--duke-moss);
+  --chart-5: var(--duke-danger);
+
+  --sidebar: var(--duke-card);
+  --sidebar-foreground: var(--duke-ink);
+  --sidebar-primary: var(--duke-accent);
+  --sidebar-primary-foreground: var(--duke-accent-ink);
+  --sidebar-accent: var(--duke-card-2);
+  --sidebar-accent-foreground: var(--duke-ink);
+  --sidebar-border: var(--duke-line);
+  --sidebar-ring: var(--duke-accent);
+
+  /* $radius-control — the base for shadcn's derived scale */
   --radius: 12px;
 }
 
@@ -34,4 +98,75 @@
   body {
     height: 100%;
   }
+
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+@theme inline {
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+
+  /* Duke extras, so `bg-duke-ember` etc. work as real utilities. */
+  --color-duke-line: var(--duke-line);
+  --color-duke-ink-2: var(--duke-ink-2);
+  --color-duke-card-2: var(--duke-card-2);
+  --color-duke-ember: var(--duke-ember);
+  --color-duke-sage: var(--duke-sage);
+  --color-duke-moss: var(--duke-moss);
+  --color-duke-danger: var(--duke-danger);
+
+  /* ------------------------------------------------------------------ radii
+   * The pen file collapses to 3 tokens. shadcn derives 6 steps from `--radius`,
+   * which would put buttons on 9.6px and cards on 16.8px — neither is on the
+   * scale. So the steps are pinned to the tokens instead:
+   *
+   *   $radius-control (12) -> --radius-md / --radius-lg   (buttons, inputs)
+   *   $radius-card    (20) -> --radius-xl / --radius-2xl  (cards, sheets)
+   *   $radius-pill   (999) -> rounded-full                (Tailwind built-in)
+   *
+   * The shadcn Button defaults to `rounded-lg`, and uses `min(--radius-md, 12px)`
+   * at small sizes, so every size resolves to the 12px control token.
+   */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 12px;
+  --radius-xl: 20px;
+  --radius-2xl: 20px;
+  --radius-3xl: 24px;
+  --radius-4xl: 28px;
 }

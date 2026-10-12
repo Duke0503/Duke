@@ -138,17 +138,37 @@ hardcode a hex in a component.
 > So our green → shadcn `--primary`, and shadcn `--accent` → our `$card-2`.
 > Get this wrong and every dropdown glows bright green on hover.
 
-**Corner radius** — the pen now uses a tight **3-step scale**, stored as pen variables so it
+> **How it is declared.** Duke has **no light mode**. There is no `.dark` block — every value
+> lives in `:root`, and `<html class="dark">` exists only so `dark:` utilities still resolve.
+> The palette is written **once** as `--duke-bg`, `--duke-card`, `--duke-accent`, … and then
+> mapped onto the shadcn names in the table above. A component may read either, and the source
+> of truth (`duke.pen`) stays obvious instead of being buried under shadcn's names.
+>
+> This also keeps the real `--accent` collision visible in code rather than silent.
+
+**Corner radius** — the pen uses a tight **3-step scale**, stored as pen variables so it
 cannot drift:
 
 | Pen token | Value | Tailwind | Used for |
 |---|---|---|---|
 | `$radius-pill` | fully round | `rounded-full` | chips, toggles, segmented controls, waveform bars, avatars, round buttons |
-| `$radius-control` | `12px` | `rounded-xl` | buttons, rows, inputs, corrections, small tiles |
-| `$radius-card` | `20px` | `rounded-[20px]` | cards, panels, sheets |
+| `$radius-control` | `12px` | `rounded-md` / `rounded-lg` | buttons, rows, inputs, corrections, small tiles |
+| `$radius-card` | `20px` | `rounded-xl` / `rounded-2xl` | cards, panels, sheets |
 
-Set `--radius: 12px` in `globals.css` so shadcn's own components land on the **control** step.
-Circles (avatars, round buttons) are squares using `$radius-pill`, so they need no extra token.
+shadcn normally derives six radius steps from `--radius`, which would put buttons on `9.6px`
+and cards on `16.8px` — neither is on our scale. So `globals.css` **pins** the steps instead:
+
+```css
+--radius: 12px;     /* base, kept for anything reading it directly */
+--radius-md: 12px;  /* $radius-control */
+--radius-lg: 12px;  /* $radius-control — shadcn's Button defaults to rounded-lg */
+--radius-xl: 20px;  /* $radius-card */
+--radius-2xl: 20px; /* $radius-card */
+```
+
+The shadcn `Button` uses `rounded-lg` at normal sizes and `min(--radius-md, 12px)` at small
+sizes, so **every** button lands on the 12px control token. Circles (avatars, round buttons)
+are squares using `$radius-pill`, so they need no extra token.
 
 ---
 
@@ -158,12 +178,11 @@ Circles (avatars, round buttons) are squares using `$radius-pill`, so they need 
 duke/
   apps/
     web/                  # Next.js: the 8 screens (UI only)          (delivery)
-      app/                # routes and pages
-      components/ui/      # shadcn/ui components (we own them)
-      components/         # the Duke screens (dark console design)
-      lib/api/            # TanStack Query hooks (useCharacters, useSessions, ...)
-      lib/livekit/        # the call client (mic + speaker)
-      styles/globals.css  # design tokens -> CSS variables
+      src/app/            # routes, layout.tsx, globals.css (design tokens)
+      src/components/ui/  # shadcn/ui components (we own them)
+      src/components/     # providers (QueryProvider) + the Duke screens
+      src/lib/api/        # TanStack Query hooks (useCharacters, useSessions, ...)
+      src/lib/livekit/    # the call client (mic + speaker)
     api/                  # NestJS: the REST API ("the office")        (delivery)
       src/modules/        # characters, sessions, calls, usage, auth
       src/main.ts         # HTTP server
