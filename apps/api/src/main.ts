@@ -1,8 +1,17 @@
 import "reflect-metadata";
+// Must stay first among the local imports: it reads .env, and the logger below is built at
+// import time from LOG_LEVEL / LOG_DIR.
+import { envFileReport } from "./platform/load-env";
 import { randomUUID } from "node:crypto";
 import { NestFactory } from "@nestjs/core";
 import { pinoHttp } from "pino-http";
-import { resolveLogDir, serializeError, startLogMaintenance } from "@duke/shared";
+import {
+  inspectEnv,
+  resolveLogDir,
+  serializeError,
+  startLogMaintenance,
+  summarizeEnv,
+} from "@duke/shared";
 import { AppModule } from "./app.module";
 import { AllExceptionsFilter } from "./observability/all-exceptions.filter";
 import { logger } from "./observability/logger";
@@ -60,6 +69,16 @@ async function bootstrap(): Promise<void> {
     },
     (error) => logger.warn({ err: serializeError(error) }, "log archive pass failed"),
   );
+
+  // One line per boot saying whether Duke can actually work yet, and which key is still
+  // missing. Pasting keys is the last step of this project; this is the line that confirms it
+  // worked, instead of finding out three screens deep in a call.
+  const env = inspectEnv();
+  logger.info(
+    { ready: env.ready, missing: env.missing, placeholders: env.placeholders },
+    summarizeEnv(env),
+  );
+  logger.info(envFileReport, "environment files");
 
   const port = Number(process.env["API_PORT"] ?? 3001);
   await app.listen(port);

@@ -1,18 +1,22 @@
-import {
-  Catch,
-  HttpException,
-  HttpStatus,
-  type ArgumentsHost,
-  type ExceptionFilter,
-} from "@nestjs/common";
+import { Catch, type ArgumentsHost, type ExceptionFilter } from "@nestjs/common";
 import type { Request, Response } from "express";
 import { serializeError, type Logger } from "@duke/shared";
+import { describeFailure, type ApiErrorBody } from "../common/api-error";
 
 /**
- * The last line of defence: nothing reaches the client without being logged first,
- * with the request id, the route and — for 5xx — the real stack trace.
+ * The last line of defence.
  *
- * We answer with a small, safe body. Internals never leak to the caller.
+ * It does two jobs and they must not be confused with each other:
+ *
+ *   1. **Log the whole truth.** Every failure is logged with the request id, the route and, for
+ *      a 5xx, the real stack trace. This is the record; the response is not.
+ *   2. **Answer with a small, safe, predictable body.** `describeFailure` in `../common/api-error`
+ *      decides what is safe to show. Anything internal becomes "something went wrong on our
+ *      side" and stays in the log.
+ *
+ * An earlier version flattened every failure to `{ statusCode, message }` and so silently threw
+ * away the `problems` array the controllers throw. The screens render one thing per field, so
+ * losing it made every form error a single vague sentence. Hence the strict single body shape.
  */
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
@@ -27,39 +31,30 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const rawId: unknown = request.id;
     const requestId = typeof rawId === "string" ? rawId : String(rawId);
 
-    const status =
-      exception instanceof HttpException ? exception.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
-
+    const failure = describeFailure(exception);
     const fields = {
       requestId,
       method: request.method,
       url: request.originalUrl,
-      statusCode: status,
+      statusCode: failure.status,
+      code: failure.code,
     };
 
-    if (status >= 500) {
+    if (failure.status >= 500) {
       this.logger.error({ ...fields, err: serializeError(exception) }, "request failed");
     } else {
       this.logger.warn(fields, "request rejected");
     }
 
-    response.status(status).json({
-      statusCode: status,
-      message: extractMessage(exception),
+    const body: ApiErrorBody = {
+      statusCode: failure.status,
+      code: failure.code,
+      message: failure.message,
+      problems: failure.problems,
       requestId,
       path: request.originalUrl,
-    });
+    };
+
+    response.status(failure.status).json(body);
   }
-}
-
-function extractMessage(exception: unknown): string | string[] {
-  if (!(exception instanceof HttpException)) return "Internal server error";
-
-  const body = exception.getResponse();
-  if (typeof body === "string") return body;
-
-  const message = (body as { message?: unknown }).message;
-  if (typeof message === "string") return message;
-  if (Array.isArray(message)) return message.map(String);
-  return exception.message;
 }

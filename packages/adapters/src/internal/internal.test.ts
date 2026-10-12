@@ -1,3 +1,4 @@
+import { inspect } from "node:util";
 import { describe, expect, it } from "vitest";
 import { AsyncQueue } from "./async-queue";
 import { lazyProxy } from "./lazy-proxy";
@@ -90,5 +91,68 @@ describe("lazyProxy", () => {
   it("stays undefined for `then`, so it is never mistaken for a promise", () => {
     const service = lazyProxy(() => ({ go: () => 1 }));
     expect((service as { then?: unknown }).then).toBeUndefined();
+  });
+
+  describe("framework introspection", () => {
+    /**
+     * The bug these cover: Nest reads `instance.constructor` on every provider while starting
+     * up. Resolving on a property *read* meant the API connected to Postgres during bootstrap
+     * and died with "DATABASE_URL is not set" before it could report the missing key.
+     */
+    const counting = () => {
+      let built = 0;
+      const service = lazyProxy(() => {
+        built += 1;
+        return { go: () => "done" };
+      });
+      return { service, built: () => built };
+    };
+
+    it("does not build just because Nest read `.constructor`", () => {
+      const { service, built } = counting();
+      const ctor = (service as unknown as { constructor: unknown }).constructor;
+      expect(typeof ctor).toBe("function");
+      expect(built()).toBe(0);
+    });
+
+    it("does not build for symbols", () => {
+      const { service, built } = counting();
+      const target = service as unknown as Record<symbol, unknown>;
+      expect(target[Symbol.toStringTag]).toBeUndefined();
+      expect(target[Symbol.iterator]).toBeUndefined();
+      expect(built()).toBe(0);
+    });
+
+    it("does not build while being inspected or enumerated", () => {
+      const { service, built } = counting();
+      expect(() => inspect(service)).not.toThrow();
+      expect(Object.keys(service)).toEqual([]);
+      expect("go" in service).toBe(false);
+      expect(built()).toBe(0);
+    });
+
+    it("does not build when a method is read, only when it is called", () => {
+      const { service, built } = counting();
+      const go = (service as { go: () => string }).go;
+      expect(built()).toBe(0);
+      expect(go()).toBe("done");
+      expect(built()).toBe(1);
+    });
+
+    it("hides the Nest lifecycle hooks, so boot cannot call one", () => {
+      const { service, built } = counting();
+      const hooks: readonly string[] = [
+        "onModuleInit",
+        "onModuleReplace",
+        "onApplicationBootstrap",
+        "onModuleDestroy",
+        "beforeApplicationShutdown",
+        "onApplicationShutdown",
+      ];
+      for (const hook of hooks) {
+        expect((service as unknown as Record<string, unknown>)[hook]).toBeUndefined();
+      }
+      expect(built()).toBe(0);
+    });
   });
 });

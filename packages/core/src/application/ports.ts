@@ -11,6 +11,19 @@ import type { VocabularyItem } from "../domain/vocabulary";
 
 // ---------------------------------------------------------------- storage
 
+/**
+ * Who the request belongs to.
+ *
+ * There is no login yet. The browser makes one anonymous id, keeps it in local storage, and
+ * sends it as `x-device-id`; this turns that into a real user row on first sight. That is
+ * enough to keep one person's friends and history together, and it means there is no
+ * password to leak. When real accounts arrive, this is the function that gains a second
+ * argument.
+ */
+export interface UserRepository {
+  findOrCreateByDevice(deviceId: string): Promise<{ readonly id: string }>;
+}
+
 export interface CharacterRepository {
   listByUser(userId: string): Promise<Character[]>;
   getById(id: string): Promise<Character | null>;

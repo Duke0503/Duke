@@ -16,6 +16,7 @@ import type {
   SessionRepository,
   SpeechToText,
   Transport,
+  UserRepository,
   Voice,
 } from "@duke/core";
 import { requireEnv } from "@duke/shared";
@@ -25,6 +26,7 @@ import { DeepgramStt } from "./deepgram/deepgram-stt";
 import { DrizzleCharacterRepository } from "./drizzle/character-repository";
 import { createDatabase, type Database } from "./drizzle/client";
 import { DrizzleSessionRepository } from "./drizzle/session-repository";
+import { DrizzleUserRepository } from "./drizzle/user-repository";
 import { GroqBrain } from "./groq/groq-brain";
 import { lazyProxy } from "./internal/lazy-proxy";
 import { LiveKitTransport } from "./livekit/livekit-transport";
@@ -39,6 +41,7 @@ export * from "./drizzle/schema";
 export * from "./drizzle/client";
 export * from "./drizzle/character-repository";
 export * from "./drizzle/session-repository";
+export * from "./drizzle/user-repository";
 export * from "./deepgram/deepgram-stt";
 export * from "./groq/groq-brain";
 export * from "./azure/azure-voice";
@@ -46,6 +49,7 @@ export * from "./livekit/livekit-transport";
 
 /** Every port, wired to a real provider. */
 export interface Adapters {
+  readonly users: UserRepository;
   readonly characters: CharacterRepository;
   readonly sessions: SessionRepository;
   readonly cache: Cache;
@@ -80,6 +84,7 @@ export function createAdapters(options: CreateAdaptersOptions = {}): Adapters {
     (cache ??= createRedisCache(options.redisUrl ?? requireEnv("REDIS_URL"), { onError }));
 
   return {
+    users: lazyProxy(() => new DrizzleUserRepository(db().db)),
     characters: lazyProxy(() => new DrizzleCharacterRepository(db().db)),
     sessions: lazyProxy(() => new DrizzleSessionRepository(db().db)),
     cache: lazyProxy(() => redis()),

@@ -21,7 +21,7 @@ import type { NewId } from "../domain/ids";
 import type { MemoryCard } from "../domain/memory-card";
 import type { Session } from "../domain/session";
 import { buildGreetingPrompt, buildSystemPrompt } from "./build-prompt";
-import { SESSION_BRIEF_TTL_SECONDS, monthOf, sessionBriefKey, usageKey } from "./keys";
+import { SESSION_BRIEF_TTL_SECONDS, monthOf, sessionBriefKey, usageCounterKey } from "./keys";
 import { rememberLastCall } from "./memory";
 import type { Cache, CharacterRepository, Clock, SessionRepository, Transport } from "./ports";
 
@@ -95,15 +95,18 @@ export async function startCall(
 
   const limits = deps.budget ?? DEFAULT_BUDGET_LIMITS;
   const now = deps.clock.now();
-  const usage = await deps.cache.get<{ sttSec?: number; ttsChars?: number }>(
-    usageKey(input.userId, monthOf(now)),
-  );
+  const month = monthOf(now);
 
-  const livekitMinutesUsed = Math.round(((usage?.sttSec ?? 0) / 60) * 10) / 10;
+  // Two tiny reads, not a blob: these are the same counters the agent increments.
+  const [sttSec, ttsChars] = await Promise.all([
+    deps.cache.get<number>(usageCounterKey(input.userId, month, "sttSec")),
+    deps.cache.get<number>(usageCounterKey(input.userId, month, "ttsChars")),
+  ]);
+
   const verdict = checkBudget(
     {
-      livekitMinutes: livekitMinutesUsed,
-      azureChars: usage?.ttsChars ?? 0,
+      livekitMinutes: (sttSec ?? 0) / 60,
+      azureChars: ttsChars ?? 0,
       currentCallSeconds: 0,
     },
     limits,

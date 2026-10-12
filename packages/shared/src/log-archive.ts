@@ -1,14 +1,21 @@
 /**
  * Keeps the log folder small.
  *
- * Pino writes one log file per day (`logs/duke-api.2026-10-12.1.log`). Days gone by
- * are never written again, so we can safely squeeze them:
+ * Pino writes one file per day in two folders:
  *
- *   1. gzip every finished day into `logs/archive/<name>.log.gz`
+ *   logs/all/duke-api.2026-10-12.1.log      (every line)
+ *   logs/error/duke-api.2026-10-12.1.log    (errors only)
+ *
+ * Days gone by are never written again, so we can safely squeeze them:
+ *
+ *   1. gzip every finished day into `logs/archive/<same subfolder>/<name>.log.gz`
  *   2. delete the original
  *   3. delete archives older than the retention window
  *
- * Today's file is never touched — it is still open by pino.
+ * Today's files are never touched — pino still holds them open.
+ *
+ * The archive keeps the same two-folder shape, so `logs/archive/error/` is a gzipped history
+ * of everything that ever went wrong — small enough to keep for a long time.
  */
 
 import { createReadStream, createWriteStream } from "node:fs";
@@ -16,12 +23,13 @@ import { mkdir, readdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { createGzip } from "node:zlib";
+import { LOG_DIRNAMES } from "./logger";
 
 export const ARCHIVE_DIRNAME = "archive";
 export const DEFAULT_RETENTION_DAYS = 14;
 
 export interface ArchiveOptions {
-  /** Folder that holds the daily log files. */
+  /** Folder that holds the daily log folders. */
   readonly logDir: string;
   /** Archives older than this many days are deleted. Default 14. */
   readonly retentionDays?: number;
@@ -47,52 +55,79 @@ function isSameDay(a: Date, b: Date): boolean {
   );
 }
 
+/** One live folder and the archive folder its days go into. */
+interface Stream {
+  readonly dir: string;
+  readonly archiveDir: string;
+}
+
+/**
+ * Where logs live and where their archives go.
+ *
+ * The root is included as well as `all` and `error`: older builds wrote a flat
+ * `logs/duke-api.<date>.log`, and a folder that changes shape should still clean up after
+ * itself rather than leaving those files behind forever.
+ */
+function streams(logDir: string): readonly Stream[] {
+  const archiveRoot = join(logDir, ARCHIVE_DIRNAME);
+  return [
+    { dir: logDir, archiveDir: archiveRoot },
+    ...LOG_DIRNAMES.map((name) => ({
+      dir: join(logDir, name),
+      archiveDir: join(archiveRoot, name),
+    })),
+  ];
+}
+
 export async function archiveOldLogs(options: ArchiveOptions): Promise<ArchiveReport> {
   const retentionDays = options.retentionDays ?? DEFAULT_RETENTION_DAYS;
-  const archiveDir = join(options.logDir, ARCHIVE_DIRNAME);
-  const report: ArchiveReport = { compressed: [], deleted: [], skipped: [] };
-
-  const entries = await readdir(options.logDir, { withFileTypes: true }).catch(() => []);
-  const logFiles = entries.filter((entry) => entry.isFile() && endsWith(entry.name, ".log"));
-
-  if (logFiles.length > 0 || retentionDays > 0) {
-    await mkdir(archiveDir, { recursive: true });
-  }
-
   const now = new Date();
+  const report: ArchiveReport = { compressed: [], deleted: [], skipped: [] };
+  const all = streams(options.logDir);
 
-  for (const entry of logFiles) {
-    const source = join(options.logDir, entry.name);
-    try {
-      const info = await stat(source);
-      // Today's file is still being written to. Leave it alone.
-      if (isSameDay(info.mtime, now)) continue;
+  for (const stream of all) {
+    const entries = await readdir(stream.dir, { withFileTypes: true }).catch(() => []);
+    const logFiles = entries.filter((entry) => entry.isFile() && endsWith(entry.name, ".log"));
+    if (logFiles.length === 0) continue;
 
-      const target = join(archiveDir, `${entry.name}.gz`);
-      await pipeline(createReadStream(source), createGzip(), createWriteStream(target));
-      await rm(source, { force: true });
-      report.compressed.push(entry.name);
-    } catch {
-      // Windows refuses to delete a file another process still holds open.
-      // That is fine — we will get it on the next run.
-      report.skipped.push(entry.name);
+    // Only create the archive folder once there is something to put in it.
+    await mkdir(stream.archiveDir, { recursive: true }).catch(() => {});
+
+    for (const entry of logFiles) {
+      const source = join(stream.dir, entry.name);
+      try {
+        const info = await stat(source);
+        // Today's file is still being written to. Leave it alone.
+        if (isSameDay(info.mtime, now)) continue;
+
+        const target = join(stream.archiveDir, `${entry.name}.gz`);
+        await pipeline(createReadStream(source), createGzip(), createWriteStream(target));
+        await rm(source, { force: true });
+        report.compressed.push(entry.name);
+      } catch {
+        // Windows refuses to delete a file another process still holds open.
+        // That is fine — we will get it on the next run.
+        report.skipped.push(entry.name);
+      }
     }
   }
 
-  const archives = await readdir(archiveDir, { withFileTypes: true }).catch(() => []);
   const cutoff = new Date(now.getTime() - retentionDays * 24 * 60 * 60 * 1000);
 
-  for (const entry of archives) {
-    if (!entry.isFile() || !endsWith(entry.name, ".gz")) continue;
-    const target = join(archiveDir, entry.name);
-    try {
-      const info = await stat(target);
-      if (info.mtime < cutoff) {
-        await rm(target, { force: true });
-        report.deleted.push(entry.name);
+  for (const stream of all) {
+    const archives = await readdir(stream.archiveDir, { withFileTypes: true }).catch(() => []);
+    for (const entry of archives) {
+      if (!entry.isFile() || !endsWith(entry.name, ".gz")) continue;
+      const target = join(stream.archiveDir, entry.name);
+      try {
+        const info = await stat(target);
+        if (info.mtime < cutoff) {
+          await rm(target, { force: true });
+          report.deleted.push(entry.name);
+        }
+      } catch {
+        report.skipped.push(entry.name);
       }
-    } catch {
-      report.skipped.push(entry.name);
     }
   }
 

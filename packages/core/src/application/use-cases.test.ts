@@ -4,7 +4,7 @@ import type { Correction } from "../domain/correction";
 import type { MemoryCard } from "../domain/memory-card";
 import type { Session, Turn } from "../domain/session";
 import type { VocabularyItem } from "../domain/vocabulary";
-import { usageKey } from "./keys";
+import { usageCounterKey } from "./keys";
 import type {
   Brain,
   BrainChunk,
@@ -396,7 +396,7 @@ describe("startCall", () => {
 
   it("refuses before opening a room when the month is used up", async () => {
     const parts = setup();
-    await parts.cache.set(usageKey("user-1", "2026-10"), { sttSec: 0, ttsChars: 10_000_000 });
+    await parts.cache.set(usageCounterKey("user-1", "2026-10", "ttsChars"), 10_000_000);
 
     const result = await startCall(deps(parts), {
       userId: "user-1",

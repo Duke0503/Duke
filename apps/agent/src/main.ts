@@ -1,3 +1,6 @@
+// Must stay first: it reads .env, and the logger below is built at import time from
+// LOG_LEVEL / LOG_DIR.
+import { envFileReport } from "./load-env";
 import { MOOD_TO_STYLE } from "@duke/core";
 import { createLogger, resolveLogDir, serializeError, startLogMaintenance } from "@duke/shared";
 
@@ -32,6 +35,7 @@ function main(): void {
     { moods: Object.keys(MOOD_TO_STYLE).length, logDir, pid: process.pid },
     "duke-agent placeholder up",
   );
+  logger.info(envFileReport, "environment files");
 
   const shutdown = (signal: string): void => {
     logger.info({ signal }, "shutting down");

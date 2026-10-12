@@ -6,18 +6,38 @@
  *   - every line carries who/where (`service`, `env`) and which request it belongs to,
  *   - secrets are removed *before* they reach the stream,
  *   - the level is controlled by config, not by editing code,
- *   - logs outlive the container: they are rotated by date and archived.
+ *   - logs outlive the container: rotated by date, and archived.
  *
- * Every line goes to two places:
+ * Every line goes to **three** places:
+ *
  *   1. **stdout** — Docker/the log collector owns shipping.
- *   2. **`logs/<service>.<date>.log`** — one file per day, so we can read history
- *      after a restart. `log-archive.ts` gzips the old ones to save disk.
+ *   2. **`logs/all/<service>.<date>.log`** — everything, the full story of a day.
+ *   3. **`logs/error/<service>.<date>.log`** — errors only.
+ *
+ * Two files and not one because they answer different questions. When something is on fire
+ * you want the short file; when you are working out *why* it caught fire you want the long
+ * one. Filtering one huge file by hand every time is the thing this avoids.
+ *
+ * The split is done by pino itself: each `pino-roll` target has its own `level`, so the
+ * error file is never even handed the debug lines.
+ *
+ * `log-archive.ts` gzips finished days from both folders to save disk.
  */
 
 import { join } from "node:path";
 import { pino, type Logger, type LoggerOptions } from "pino";
 
 export type { Logger };
+
+/** Folder for everything. */
+export const LOG_ALL_DIRNAME = "all";
+/** Folder for errors only. */
+export const LOG_ERROR_DIRNAME = "error";
+/** Both live folders, in the order a human would read them. */
+export const LOG_DIRNAMES: readonly string[] = [LOG_ALL_DIRNAME, LOG_ERROR_DIRNAME];
+
+/** The level the error-only file starts at. */
+export const ERROR_FILE_LEVEL = "error";
 
 export interface LoggerInput {
   /** Which process this is, e.g. "duke-api" or "duke-agent". */
@@ -26,7 +46,7 @@ export interface LoggerInput {
   readonly level?: string;
   /** Force pretty (dev) or JSON (prod). Defaults to JSON when NODE_ENV=production. */
   readonly pretty?: boolean;
-  /** Folder for the daily log files. Empty/undefined disables file logging. */
+  /** Folder that holds the daily log folders. Empty/undefined disables file logging. */
   readonly logDir?: string;
 }
 
@@ -96,6 +116,20 @@ interface TransportTarget {
   readonly options: Record<string, unknown>;
 }
 
+/** One file stream, rotated daily. */
+const rollTarget = (level: string, dir: string, file: string): TransportTarget => ({
+  target: "pino-roll",
+  level,
+  options: {
+    file: join(dir, file),
+    frequency: "daily",
+    dateFormat: LOG_DATE_FORMAT,
+    extension: ".log",
+    mkdir: true,
+    limit: { count: LOG_FILES_KEPT, removeOtherLogFiles: false },
+  },
+});
+
 export function createLoggerOptions(input: LoggerInput): LoggerOptions {
   const level = resolveLogLevel(input.level);
   const wantsPretty = input.pretty ?? !isProduction();
@@ -119,18 +153,10 @@ export function createLoggerOptions(input: LoggerInput): LoggerOptions {
   }
 
   if (logDir.length > 0) {
-    targets.push({
-      target: "pino-roll",
-      level,
-      options: {
-        file: join(logDir, input.service),
-        frequency: "daily",
-        dateFormat: LOG_DATE_FORMAT,
-        extension: ".log",
-        mkdir: true,
-        limit: { count: LOG_FILES_KEPT, removeOtherLogFiles: false },
-      },
-    });
+    // Everything, at the configured level.
+    targets.push(rollTarget(level, join(logDir, LOG_ALL_DIRNAME), input.service));
+    // Only errors. pino never hands this target anything below `error`.
+    targets.push(rollTarget(ERROR_FILE_LEVEL, join(logDir, LOG_ERROR_DIRNAME), input.service));
   }
 
   return {
