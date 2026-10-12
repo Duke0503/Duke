@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
-import { buildSsml, extractPcm, framePcm } from "../azure/azure-voice";
-import { MOOD_TO_STYLE } from "@duke/core";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { AzureVoice, buildSsml, extractPcm, framePcm } from "../azure/azure-voice";
+import { MOOD_TO_STYLE, type Mood } from "@duke/core";
 
 /** A minimal but real WAV: RIFF header, `fmt ` chunk, then `data`. */
 function wav(samples: number[], { extraChunk = false } = {}): Uint8Array {
@@ -100,5 +100,93 @@ describe("buildSsml", () => {
   it("escapes text so a stray ampersand cannot break the request", () => {
     const ssml = buildSsml('Tom & Jerry say "hi" <now>', "en-US-AriaNeural", null);
     expect(ssml).toContain("Tom &amp; Jerry say &quot;hi&quot; &lt;now&gt;");
+  });
+});
+
+/**
+ * `speak` is the part that talks to Azure, and it had no tests — which is why two comments in the
+ * file survived saying a wrong thing about how Azure answers. These are the behaviours that were
+ * measured against the live service, pinned so they cannot drift back.
+ */
+describe("speak", () => {
+  const audio = () => new Response(wav([1, 2, 3, 4, 5, 6, 7, 8]), { status: 200 });
+  const refusal = (status: number, body = "") => new Response(body, { status });
+
+  const voiceWith = (complaints: unknown[]) =>
+    new AzureVoice({
+      apiKey: "key",
+      region: "region",
+      onError: (error) => complaints.push(error),
+    });
+
+  const collect = async (
+    voice: AzureVoice,
+    mood: Mood,
+    voiceId = "en-US-AriaNeural",
+  ): Promise<number> => {
+    let frames = 0;
+    for await (const chunk of voice.speak({ text: "hello there", voiceId, mood })) {
+      frames += chunk.pcm.length > 0 ? 1 : 0;
+    }
+    return frames;
+  };
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("asks once when the voice can do the mood", async () => {
+    const bodies: string[] = [];
+    vi.stubGlobal("fetch", async (_url: string, init: { body: string }) => {
+      bodies.push(init.body);
+      return audio();
+    });
+    const complaints: unknown[] = [];
+
+    const frames = await collect(voiceWith(complaints), "cheerful");
+
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0]).toContain('style="cheerful"');
+    expect(complaints).toHaveLength(0);
+    expect(frames).toBeGreaterThan(0);
+  });
+
+  it("speaks plainly and says so when Azure refuses the style", async () => {
+    const bodies: string[] = [];
+    vi.stubGlobal("fetch", async (_url: string, init: { body: string }) => {
+      bodies.push(init.body);
+      return bodies.length === 1 ? refusal(400) : audio();
+    });
+    const complaints: { code?: string }[] = [];
+
+    const frames = await collect(voiceWith(complaints), "cheerful");
+
+    expect(bodies).toHaveLength(2);
+    expect(bodies[1]).not.toContain("express-as");
+    expect(complaints[0]?.code).toBe("VOICE_STYLE_UNSUPPORTED");
+    expect(frames).toBeGreaterThan(0);
+  });
+
+  it("blames the voice name, not the emotion, when the voice is the problem", async () => {
+    // Azure 400s an unknown voice with an empty body, so this is the only way to learn the name.
+    vi.stubGlobal("fetch", async () => refusal(400));
+    const complaints: unknown[] = [];
+
+    await expect(collect(voiceWith(complaints), "cheerful", "en-US-NotAVoiceNeural")).rejects.toThrow(
+      /en-US-NotAVoiceNeural/,
+    );
+    // The old code reported "rejected the style" first, which sent the reader to the wrong file.
+    expect(complaints).toHaveLength(0);
+  });
+
+  it("does not retry a provider failure", async () => {
+    let calls = 0;
+    vi.stubGlobal("fetch", async () => {
+      calls += 1;
+      return refusal(401, "denied");
+    });
+
+    await expect(collect(voiceWith([]), "cheerful")).rejects.toThrow(/401/);
+    expect(calls).toBe(1);
   });
 });

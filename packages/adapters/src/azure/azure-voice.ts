@@ -5,10 +5,14 @@
  * `[[mood]]` tag; `MOOD_TO_STYLE` (in `@duke/core`) turns that into an Azure
  * `mstts:express-as` style, and this file wraps the sentence in that SSML.
  *
- * The one thing we cannot know in advance: **which styles a given voice supports.** Azure
- * rejects a style the voice does not have with HTTP 400. We do not hardcode a capability
- * table we never verified — we ask for the emotion, and if Azure says no, we say the same
- * line plainly. That is why `speak` has two attempts.
+ * Which styles a given voice supports is the one thing this file cannot know in advance — and the
+ * live service answers it in a way the code originally got wrong. Azure does **not** reject a style
+ * a voice does not have: a request with `style="banana"` comes back `200` with audio, and so does a
+ * real style that belongs to a different voice. An unsupported style is quietly ignored, so a voice
+ * that cannot express a mood does not fail — it sounds flat, and nothing in the response says so.
+ * What *does* return 400 is a voice **name** that does not exist, and with an empty body, so the
+ * name has to come from us. Choosing voices that can do every mood is therefore `voice.ts`'s job,
+ * and the second attempt in `speak` is only a net under the 400s that do happen.
  *
  * Output is `riff-24khz-16bit-mono-pcm`: uncompressed PCM inside a WAV header. Asking for
  * MP3 would mean shipping a decoder; asking for RIFF means the bytes after the 44-byte
@@ -150,23 +154,36 @@ export class AzureVoice implements Voice {
         // 401/403/429 are real problems; a second plain request would just fail again.
         throw new AppError(
           "VOICE_HTTP",
-          `Azure speech returned ${styled.status}. ${styled.message}`.trim(),
+          `Azure speech returned ${styled.status} for voice "${voiceId}". ${styled.message}`.trim(),
         );
       }
-      // 400 with a style means this voice cannot do this emotion. Say it plainly instead.
+
+      // A 400 is ambiguous — the style, or the voice name — and Azure's body is empty, so it will
+      // not say which. Ask plainly before blaming the emotion: if the voice itself is wrong, that
+      // request fails too, and the error below is the accurate one.
+      const plain = await this.request(buildSsml(text, voiceId, null));
+      if (!plain.ok) {
+        throw new AppError(
+          "VOICE_HTTP",
+          `Azure speech returned ${plain.status} for voice "${voiceId}". ${plain.message}`.trim(),
+        );
+      }
+      // The plain request worked, so the style was the reason the first one did not.
       this.options.onError?.(
         new AppError(
           "VOICE_STYLE_UNSUPPORTED",
           `Voice ${voiceId} rejected the "${style.style}" style; speaking plainly.`,
         ),
       );
+      yield* framePcm(extractPcm(plain.wav));
+      return;
     }
 
     const plain = await this.request(buildSsml(text, voiceId, null));
     if (!plain.ok) {
       throw new AppError(
         "VOICE_HTTP",
-        `Azure speech returned ${plain.status}. ${plain.message}`.trim(),
+        `Azure speech returned ${plain.status} for voice "${voiceId}". ${plain.message}`.trim(),
       );
     }
     yield* framePcm(extractPcm(plain.wav));
@@ -175,7 +192,14 @@ export class AzureVoice implements Voice {
   /** Trim text to what one request can hold. Azure caps a single request well above this. */
   static readonly MAX_CHARS_PER_REQUEST = 2_000;
 
-  /** Cheap key check for the doctor command. */
+  /**
+   * Ask Azure to list voices for this key — a real call, and the cheapest way to know that a key
+   * and a region work together.
+   *
+   * The doctor deliberately does **not** call this: it promises never to claim a key is valid,
+   * because a provider having a bad minute would then be reported as a setup mistake (see the note
+   * at the top of `scripts/doctor.mjs`). This exists for a deliberate check by hand.
+   */
   async check(): Promise<number> {
     const response = await fetch(
       `https://${this.region()}.tts.speech.microsoft.com/cognitiveservices/voices/list`,

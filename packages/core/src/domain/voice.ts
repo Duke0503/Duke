@@ -10,9 +10,13 @@
  * Without that split, "savage friend" scores 1 for *friend* and 1 for *savage*, and the
  * generic word wins on order alone.
  *
- * The voiceIds here are a starting guess and are **not** verified against Azure's live
- * voice list. `AzureVoice` treats an unknown voice as a hard error and says which name it
- * tried, so a wrong guess is a one-line fix rather than silent silence.
+ * The voiceIds were written from documentation and have since been checked against Azure's live
+ * list in the region Duke runs in: all seven exist, and six of them can express every style in
+ * `MOOD_TO_STYLE`. The exception is the British voice — no `en-GB` voice supports more than two of
+ * the six (`en-GB-RyanNeural` has `cheerful` and `chat`), and because Azure *ignores* a style it
+ * does not know rather than rejecting it, a British character simply speaks flat for the moods it
+ * cannot do, with no error anywhere. The accent is the point of that role, and the voice picker
+ * lets anyone choose another voice, so the trade stays visible here instead of being papered over.
  */
 
 export interface RoleVoice {

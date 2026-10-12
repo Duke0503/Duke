@@ -592,6 +592,30 @@ first try, and the room appeared in the list a second or two later. `listDispatc
 stricter check, in that it throws `not_found: requested room does not exist` for a room that is not
 there, which is an answer rather than an error.
 
+**The voices, checked against Azure's own list.** `voice.ts` said of itself that its seven voiceIds
+were "a starting guess", written from documentation. They have now been asked of the live service
+(869 voices in the region, Free F0, `eastasia`):
+
+  - all seven exist, and six of them can express **every** style in `MOOD_TO_STYLE`;
+  - the exception is the British voice: no `en-GB` voice supports more than two of the six
+    (`en-GB-RyanNeural` has `cheerful` and `chat`), so a British character speaks flat for the moods
+    it cannot do — and because of the next point, silently;
+  - the emotion is real, not decoration. Four moods on one sentence produced **four different
+    recordings** (compared by hash: 131–155 KB, distinct every time), and the SSML that carries them
+    is visible in the request. A 30-character sentence comes back as ~2.6–2.9s of 24 kHz speech in
+    600–1100ms.
+
+**And the assumption in `azure-voice.ts` that this disproved.** The file claimed Azure "rejects a
+style the voice does not have with HTTP 400", and `speak`'s second attempt existed to catch that.
+The live service does not do this. `style="banana"` returns **200 with audio**; so does a real style
+that belongs to a different voice. An unsupported style is quietly ignored, which is the worse of the
+two possible behaviours — a mood can go missing with no error anywhere. What genuinely returns 400 is
+a voice **name** that does not exist, and it does so with an **empty body**, so Azure never tells you
+which name it tried. That mattered: a bad voice name took the style branch, so the operator was told
+"rejected the excited style" and then sent to the wrong file. `speak` now retries plainly first and
+only blames the emotion if the plain request works, and the error names the voice itself. Four tests
+cover these paths, which had no tests at all — which is how the wrong comment survived.
+
 > Not verified: **the images were never built.** No Docker engine was available. The Dockerfiles
 > take the conservative shape (Debian not Alpine, `--frozen-lockfile`, the runtime stage doing its
 > own `--prod` install instead of copying a pnpm symlink tree), and any mistake in them is a
