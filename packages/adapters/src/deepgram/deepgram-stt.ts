@@ -16,10 +16,9 @@
  */
 
 import type { AudioChunk, SpeechToText, TranscriptEvent } from "@duke/core";
-import { AppError, optionalEnv, requireEnv } from "@duke/shared";
+import { AppError, DEFAULT_DEEPGRAM_MODEL, optionalEnv, requireEnv } from "@duke/shared";
 import { AsyncQueue } from "../internal/async-queue";
 
-const DEFAULT_MODEL = "nova-3";
 const DEFAULT_SAMPLE_RATE = 16_000;
 const LISTEN_URL = "wss://api.deepgram.com/v1/listen";
 const PRERECORDED_URL = "https://api.deepgram.com/v1/listen";
@@ -50,7 +49,7 @@ export class DeepgramStt implements SpeechToText {
   }
 
   private model(): string {
-    return this.options.model ?? optionalEnv("DEEPGRAM_MODEL", DEFAULT_MODEL);
+    return this.options.model ?? optionalEnv("DEEPGRAM_MODEL", DEFAULT_DEEPGRAM_MODEL);
   }
 
   /** Stream a live microphone. Yields interim and final transcripts. */

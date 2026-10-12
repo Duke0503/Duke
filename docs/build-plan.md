@@ -514,9 +514,30 @@ holds, in the call-shutdown path — the most fragile place in the system — an
 unverifiable without a real database. It is a one-place change when there is a reason for it; the
 reason would be Upstash losing a counter, which has not happened.
 
-Also: the PWA manifest and the app icon (so the phone can install it instead of opening a tab),
-and `DEEPGRAM_MODEL` defaulted to `nova-3` in the agent — it said `nova-2` while the adapter, the
-key list and `.env.example` all said `nova-3`.
+Also: the PWA manifest and the app icon (so the phone can install it instead of opening a tab).
+
+**The default Groq model was retired, and nothing was going to say so.** `.env.example`, the key
+list and the code all pointed at `llama-3.3-70b-versatile`; the account cannot see that model, so a
+request for it is a 404 — the first real call would have failed at the brain, right after the keys
+were collected, which is the worst possible moment to find out. The models the account *can* see
+were probed against the live API, and two findings are now written into the code:
+
+  - **`openai/gpt-oss-20b` is the default**, at 466ms to the first token on a realistic reply
+    against 812ms for `openai/gpt-oss-120b`. On a phone call that gap is the whole illusion;
+    `-120b` is the one-line upgrade (`.env.example` and `docs/keys.md` both say so), for replies
+    that feel shallow;
+  - both are **reasoning** models, and reasoning is billed against `max_tokens` *before* the answer
+    starts. At the default effort, inside the 200 tokens a reply is given, `gpt-oss-20b` returned an
+    **empty string** — no error anywhere, just a silent line — and `gpt-oss-120b` returned
+    `"[[warm]] I spent the afternoon"`, cut off mid-sentence. Duke now asks for
+    `reasoning_effort: "low"` (Groq accepts only `low`/`medium`/`high`; the SDK's own type offers two
+    more words that are a 400), and only asks for it when the model takes the parameter, because
+    sending it to a model that does not is also a 400.
+
+The model names and that rule live in one file (`@duke/shared` — `providers.ts`) rather than being
+written down in three. `DEEPGRAM_MODEL` defaulted to `nova-3` in the agent, which said `nova-2`
+while the adapter, the key list and `.env.example` all said `nova-3` — the same mistake in the same
+afternoon, and the answer to it is a constant, not a convention.
 
 **One silent failure found by reading the SDK.** The API creates each room with
 `RoomAgentDispatch({ agentName })`, and the agents SDK decides the worker's own name like this:

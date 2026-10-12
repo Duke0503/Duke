@@ -11,9 +11,14 @@
  */
 
 import type { Brain, BrainChunk, BrainInput } from "@duke/core";
-import { AppError, optionalEnv, requireEnv } from "@duke/shared";
+import {
+  AppError,
+  DEFAULT_GROQ_MODEL,
+  groqReasoningEffort,
+  optionalEnv,
+  requireEnv,
+} from "@duke/shared";
 
-const DEFAULT_MODEL = "llama-3.3-70b-versatile";
 const ENDPOINT = "https://api.groq.com/openai/v1/chat/completions";
 
 export interface GroqBrainOptions {
@@ -66,7 +71,23 @@ export class GroqBrain implements Brain {
   }
 
   private model(): string {
-    return this.options.model ?? optionalEnv("GROQ_MODEL", DEFAULT_MODEL);
+    return this.options.model ?? optionalEnv("GROQ_MODEL", DEFAULT_GROQ_MODEL);
+  }
+
+  /**
+   * The body both calls send.
+   *
+   * The one subtle part: reasoning models must be told to think *little*. Duke asks for a short
+   * reply, the reasoning is billed against `max_tokens` before the answer starts, and at the
+   * default effort the answer is truncated or missing entirely. See {@link groqReasoningEffort}.
+   */
+  private body(model: string): Record<string, unknown> {
+    const body: Record<string, unknown> = { model };
+
+    const effort = groqReasoningEffort(model);
+    if (effort !== undefined) body["reasoning_effort"] = effort;
+
+    return body;
   }
 
   async *reply(input: BrainInput): AsyncIterable<BrainChunk> {
@@ -86,7 +107,7 @@ export class GroqBrain implements Brain {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: this.model(),
+        ...this.body(this.model()),
         messages,
         stream: true,
         temperature: this.options.temperature ?? 0.8,
@@ -129,7 +150,7 @@ export class GroqBrain implements Brain {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: this.model(),
+        ...this.body(this.model()),
         messages: [
           { role: "system", content: system },
           { role: "user", content: userText },

@@ -455,7 +455,7 @@ LIVEKIT_TOKEN_TTL                # optional, join-token lifetime
 DEEPGRAM_API_KEY
 DEEPGRAM_MODEL                   # optional, default "nova-3"
 GROQ_API_KEY
-GROQ_MODEL                       # optional, default "llama-3.3-70b-versatile"
+GROQ_MODEL                       # optional, default "openai/gpt-oss-20b" (or "-120b")
 AZURE_SPEECH_KEY
 AZURE_SPEECH_REGION
 AZURE_VOICE                      # optional fallback voice

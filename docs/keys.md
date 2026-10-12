@@ -56,7 +56,10 @@ it for last.
 GROQ_API_KEY=gsk_...
 ```
 
-Leave `GROQ_MODEL=llama-3.3-70b-versatile` as it is.
+Leave `GROQ_MODEL=openai/gpt-oss-20b` as it is. It is the fastest model on the list, which is
+what a phone call wants. If replies ever feel shallow, change it to `openai/gpt-oss-120b` — the
+same model, bigger. Do not use `llama-3.3-70b-versatile`: it is retired, and a call would fail
+the moment the character tried to think.
 
 ### 2. Deepgram — https://console.deepgram.com
 

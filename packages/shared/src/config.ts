@@ -90,7 +90,7 @@ export const ENV_GROUPS: readonly EnvGroup[] = [
     url: "https://console.groq.com/keys",
     keys: [
       { key: "GROQ_API_KEY", label: "API key", where: "Console -> API Keys -> Create key (starts with gsk_)", secret: true },
-      { key: "GROQ_MODEL", label: "Chat model", where: "already set", secret: false, example: "llama-3.3-70b-versatile", optional: true },
+      { key: "GROQ_MODEL", label: "Chat model", where: "already set", secret: false, example: "openai/gpt-oss-20b", optional: true },
     ],
   },
   {

@@ -29,13 +29,17 @@ import { LLM } from "@livekit/agents-plugin-openai";
 import { VAD as SileroVad } from "@livekit/agents-plugin-silero";
 import { DEFAULT_AGENT_NAME, createAdapters, type Adapters } from "@duke/adapters";
 import {
+  DEFAULT_DEEPGRAM_MODEL,
+  DEFAULT_GROQ_MODEL,
   createLogger,
+  groqReasoningEffort,
   inspectEnv,
   optionalEnv,
   requireEnv,
   resolveLogDir,
   serializeError,
   startLogMaintenance,
+  type GroqReasoningEffort,
 } from "@duke/shared";
 import type { Logger } from "@duke/shared";
 import { AzureTts } from "./azure-tts";
@@ -43,9 +47,18 @@ import { readBrief, sessionIdFromRoom } from "./brief";
 import { DukeAgent } from "./duke-agent";
 import { TurnRecorder } from "./recorder";
 
-const DEFAULT_DEEPGRAM_MODEL = "nova-3";
-const DEFAULT_GROQ_MODEL = "llama-3.3-70b-versatile";
 const DEFAULT_LOG_RETENTION_DAYS = 14;
+
+/**
+ * `withGroq` spreads what it is given straight into `new LLM(...)`, where `reasoningEffort` is a
+ * real, documented option — the factory's own type just leaves it out, so TypeScript rejects the
+ * property even though the SDK reads it. Widening the object here is the smallest way to say
+ * that, and it keeps the Groq base URL and the `GROQ_API_KEY` fallback coming from the vendor
+ * instead of being copied into this file.
+ */
+type GroqOptions = NonNullable<Parameters<typeof LLM.withGroq>[0]> & {
+  readonly reasoningEffort?: GroqReasoningEffort;
+};
 
 /** The job process carries the loaded VAD between calls. */
 interface ProcessData extends Record<string, unknown> {
@@ -138,10 +151,20 @@ async function answerCall(
     noDelay: true,
   });
 
-  const llm = LLM.withGroq({
+  // One model, one place to change it: `GROQ_MODEL` in `.env`, falling back to the shared
+  // default. `reasoningEffort` is not a taste setting — a reasoning model at its default effort
+  // spends the reply's token budget on thinking and the learner hears a truncated sentence or
+  // nothing at all (verified against the live API; see `groqReasoningEffort`). It is `undefined`
+  // for a model that does not take the parameter, and the plugin does not send an undefined one,
+  // so switching models cannot turn this into a 400.
+  const groqModel = optionalEnv("GROQ_MODEL", DEFAULT_GROQ_MODEL);
+  const groqOptions: GroqOptions = {
     apiKey: requireEnv("GROQ_API_KEY"),
-    model: optionalEnv("GROQ_MODEL", DEFAULT_GROQ_MODEL),
-  });
+    model: groqModel,
+    reasoningEffort: groqReasoningEffort(groqModel),
+  };
+
+  const llm = LLM.withGroq(groqOptions);
 
   const session = new voice.AgentSession({
     // Pretrained in `prewarm`; loaded here only if that did not happen.
