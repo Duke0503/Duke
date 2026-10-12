@@ -12,12 +12,14 @@
  */
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import {
   BookOpenIcon,
   CheckCircle2Icon,
   ChevronRightIcon,
   CopyIcon,
+  LogOutIcon,
   ShieldAlertIcon,
 } from "lucide-react";
 import { AppShell, ScreenBody } from "@/components/shell/app-shell";
@@ -50,6 +52,7 @@ export default function SettingsPage() {
   const usage = useUsage();
   const setup = useSetup();
   const [copied, setCopied] = useState(false);
+  const router = useRouter();
 
   const id = deviceId();
 
@@ -61,6 +64,19 @@ export default function SettingsPage() {
     } catch {
       setCopied(false);
     }
+  }
+
+  /**
+   * Leaving.
+   *
+   * The session is the cookie, so this asks the web app to delete it and then goes to the login
+   * screen. Waiting for the request matters: navigating first would leave a valid cookie in the
+   * browser, and the proxy would simply send the next request straight back in.
+   */
+  async function signOut() {
+    await fetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
+    router.replace("/login");
+    router.refresh();
   }
 
   return (
@@ -167,8 +183,20 @@ export default function SettingsPage() {
             </Button>
           </div>
           <p className="text-muted-foreground text-[11px] leading-relaxed">
-            There is no account. Your friends live with this id, in this browser. Clearing site
-            data would lose them.
+            Your friends live with this id, in this browser. Signing out keeps them; clearing
+            site data would lose them.
+          </p>
+
+          <Button
+            variant="outline"
+            className="mt-1 h-10 justify-start gap-2"
+            onClick={() => void signOut()}
+          >
+            <LogOutIcon className="size-4" />
+            Sign out
+          </Button>
+          <p className="text-muted-foreground text-[11px] leading-relaxed">
+            Duke is behind one password, so that nobody else can spend your free minutes.
           </p>
         </section>
       </ScreenBody>

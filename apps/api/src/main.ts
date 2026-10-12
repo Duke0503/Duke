@@ -81,8 +81,13 @@ async function bootstrap(): Promise<void> {
   logger.info(envFileReport, "environment files");
 
   const port = Number(process.env["API_PORT"] ?? 3001);
-  await app.listen(port);
-  logger.info({ port, logDir, pid: process.pid }, "duke-api listening");
+  // Where to listen. `0.0.0.0` by default, because in Docker the web container has to reach this
+  // one over the network. Running on your own machine, `run-local.ps1` sets API_HOST=127.0.0.1:
+  // the web app reaches the API over loopback and the tunnel only ever needs the web app, so
+  // nothing outside this machine has a reason to touch the port that holds the database.
+  const host = process.env["API_HOST"] ?? "0.0.0.0";
+  await app.listen(port, host);
+  logger.info({ port, host, logDir, pid: process.pid }, "duke-api listening");
 
   const shutdown = (signal: string): void => {
     logger.info({ signal }, "shutting down");

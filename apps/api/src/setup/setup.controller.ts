@@ -1,15 +1,21 @@
 /**
  * "Is Duke ready, and what is left to paste?"
  *
- * These two routes are the whole point of the lazy-adapters design. They answer before any
- * key exists, and they answer without touching a provider. The last step of the project is
- * pasting keys, and this is what tells you which one is still missing.
+ * These routes are the whole point of the lazy-adapters design. They answer before any key
+ * exists, and they answer without touching a provider. The last step of the project is pasting
+ * keys, and this is what tells you which one is still missing.
  *
- * Note what is NOT here: no secrets. A value is only ever echoed back for a variable marked
- * public, so a screenshot of `/api/setup` in a bug report leaks nothing.
+ * Only the health probe is public. It has to work when Duke is broken, which is the point of it,
+ * and it says nothing but `ok`. The other two name which keys are set, so they need the session
+ * cookie like everything else: they are the checklist for the setup screen, and the setup screen
+ * is behind the front door.
+ *
+ * Note what is NOT here either way: no secrets. A value is only ever echoed back for a variable
+ * marked public, so a screenshot of `/api/setup` in a bug report leaks nothing.
  */
 
 import { Controller, Get } from "@nestjs/common";
+import { Public } from "../common/public.decorator";
 import {
   ENV_GROUPS,
   REQUIRED_ENV_KEYS,
@@ -84,7 +90,13 @@ const toSetupView = (report: EnvReport): SetupView => ({
 
 @Controller()
 export class SetupController {
-  /** A tiny "can I be reached" probe. Always true if the process is up. */
+  /**
+   * A tiny "can I be reached" probe. Always true if the process is up.
+   *
+   * Public on purpose: the launcher polls this to decide whether the API is up, and it must
+   * answer that while somebody is still signing in — or before they ever have.
+   */
+  @Public()
   @Get("health")
   health(): { ok: boolean } {
     return { ok: true };

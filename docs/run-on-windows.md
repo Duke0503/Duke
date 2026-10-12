@@ -15,12 +15,17 @@ api    99 MB      agent  134 MB      web  78 MB      =  310 MB
 
 | Service | What it is | Listens on | Reachable from |
 |---|---|---|---|
-| `api` | NestJS. Characters, sessions, LiveKit tokens. | `API_PORT` (4478) | the machine, **and your LAN** — see §7 |
+| `api` | NestJS. Characters, sessions, LiveKit tokens. | `API_PORT` (4478) | `127.0.0.1` only |
 | `agent` | the voice worker | nothing | it only dials out to LiveKit |
 | `web` | the screens you open | `WEB_PORT` (4477) | `127.0.0.1` only, plus the tunnel |
 
 Three processes and no Docker. The ports are read from `.env`, never hardcoded, so the launcher
 and the tunnel can never disagree about where the web app is.
+
+Nothing here is reachable from your network. The web app is loopback-only, and so is the API —
+the launcher starts it with `API_HOST=127.0.0.1`, so the port that holds the database does not
+answer to the same Wi-Fi. The one way in is the tunnel, and the first thing behind it is a
+password (§4).
 
 ---
 
@@ -65,13 +70,65 @@ Unregister-ScheduledTask -TaskName Duke -Confirm:$false   # remove it entirely
 
 ---
 
-## 4. Putting it on your domain
+## 4. The front door: one password
+
+Duke is free to run, which means the thing worth protecting is not data — it is your share of
+the free tiers. Anyone who learns the address could otherwise spend it.
+
+So there is one sign-in, and it is two lines in `.env`:
+
+```dotenv
+AUTH_USERNAME=admin
+AUTH_PASSWORD_HASH=scrypt:...     # never the password itself
+```
+
+**Never put the password itself in that file.** `AUTH_PASSWORD_HASH` is a hash, and the way to
+make one is:
+
+```powershell
+node scripts/hash-password.mjs "your password"
+```
+
+Paste the line it prints over the one in `.env`, then restart:
+
+```powershell
+powershell -File scripts\run-local.ps1 restart
+```
+
+That hash has a second job: session cookies are signed with it, so **changing the password signs
+out every device** — which is what changing a password should mean. Nothing needs rebuilding:
+the API reads this at startup, and the web app never sees it.
+
+What that gives you:
+
+- Any screen without a session lands on `/login`, and after signing in you carry on to the
+  screen you asked for.
+- The cookie is `HttpOnly` (no script can read it), `SameSite=Lax`, and marked `Secure` whenever
+  the address is `https`. One phone stays signed in for `AUTH_SESSION_HOURS` — thirty days by
+  default.
+- **Leaving** is the sign-out button at the bottom of Settings. There is no session on the
+  server to clean up; the cookie *is* the session.
+- Forgot it? Make a new hash, paste, restart. There is nothing else to recover, by design.
+- If `AUTH_PASSWORD_HASH` is missing, the API answers **503 and names the key** instead of
+  letting everyone in. A front door that quietly opens when it is not configured is the bug this
+  is written to avoid.
+
+Two things worth knowing:
+
+- The password protects the app; it does not protect the tunnel. Someone who never gets that far
+  never sees a login screen either — §5.3 puts a second door on the front of the tunnel.
+- Your friends still belong to the device id (Settings → This phone). Signing out keeps them;
+  clearing site data would lose them.
+
+---
+
+## 5. Putting it on your domain
 
 **The problem this solves.** iPhone Safari and Android Chrome only give a page the microphone on
 `https://`. `http://192.168.x.x:4477` will load the screens and then refuse to listen. A tunnel
 gives your phone a real `https://` name while Duke keeps running on your desk.
 
-### 4.1 The sixty-second version, for testing
+### 5.1 The sixty-second version, for testing
 
 ```powershell
 & "C:\Program Files (x86)\cloudflared\cloudflared.exe" tunnel --url http://127.0.0.1:4477
@@ -81,7 +138,7 @@ It prints a random name like `https://foam-printable-lone-anything.trycloudflare
 on your phone. No account, no DNS, no ports opened. It dies when you close the window and the
 name changes every time — which is why it is for testing only.
 
-### 4.2 The real one: `friend.duke.io.vn`
+### 5.2 The real one: `friend.duke.io.vn`
 
 Create a tunnel **on this machine**. A tunnel only ever reaches its own machine's localhost, so
 adding this hostname to the existing VPS tunnel would point at the VPS, not at your PC.
@@ -97,7 +154,7 @@ adding this hostname to the existing VPS tunnel would point at the VPS, not at y
    ```
 
    That installs a Windows service that starts with the machine. It replaces the temporary
-   tunnel from 4.1 — stop that one first.
+   tunnel from 5.1 — stop that one first.
 4. Back in the dashboard, open the tunnel → **Public Hostnames** → **Add a public hostname**:
 
    | Field | Value |
@@ -135,10 +192,11 @@ ingress:
 `LocalSystem`, which cannot see your user profile, so copy **both** `config.yml` and the
 credentials file into `C:\Windows\System32\config\systemprofile\.cloudflared\`.
 
-### 4.3 Lock the front door
+### 5.3 A second door, on the tunnel itself
 
-Duke authenticates devices, not people. Anyone who learns the URL can invent a device id and
-spend your Groq, Deepgram and Azure free tiers.
+Duke's own password (§4) is what stops someone using your tokens. Cloudflare Access is what
+stops them reaching the login screen at all — worth having, because it is the difference between
+"guess my password" and "you are not welcome here".
 
 Cloudflare Access fixes that for free (up to 50 users): **Zero Trust → Access → Applications →
 Add an application → Self-hosted**, domain `friend.duke.io.vn`, policy `Allow` for your email
@@ -147,7 +205,7 @@ serves a single byte. Your phone remembers it.
 
 ---
 
-## 5. The thing that bit us, so it does not bite you
+## 6. The thing that bit us, so it does not bite you
 
 **The `/api` forward is baked into the web build.** Next.js resolves the rewrite from
 `next.config.ts` at build time and writes the result into
@@ -171,14 +229,14 @@ You can check what a build actually points at:
 
 ---
 
-## 6. Changing the ports
+## 7. Changing the ports
 
 Three lines in `.env`, and they mean what they say:
 
 ```dotenv
 API_PORT=4478                                 # the API
 WEB_PORT=4477                                 # the screens (also what the tunnel points at)
-API_ORIGIN=http://127.0.0.1:4478               # web -> API, and it needs a rebuild (§5)
+API_ORIGIN=http://127.0.0.1:4478               # web -> API, and it needs a rebuild (§6)
 ```
 
 `WEB_ORIGIN` is the browser origin allowed by CORS. Because the browser only ever talks to the
@@ -190,34 +248,37 @@ WEB_ORIGIN=https://friend.duke.io.vn
 
 ---
 
-## 7. What is exposed, and what is not
+## 8. What is exposed, and what is not
 
 - **Your keys never reach the browser.** The API holds them; the session brief and the LiveKit
   prompt stay server-side.
 - **The web app is bound to `127.0.0.1`.** Your Wi-Fi cannot see it; only the tunnel can, because
   the tunnel runs on this machine.
 - **The voice worker listens on nothing.** It dials out to LiveKit Cloud.
-- **The API binds every interface**, and Windows Firewall already has allow rules for `node.exe`
-  from earlier development, so `http://<your-pc>:4478` is reachable from your LAN today. Nothing
-  needs that — the web app reaches the API over loopback. To close it, in an Administrator shell:
-
-  ```powershell
-  New-NetFirewallRule -DisplayName "Duke API - loopback only" -Direction Inbound `
-    -Protocol TCP -LocalPort 4478 -Action Block -Profile Any
-  ```
-
-  The cleaner fix is to bind the API itself to `127.0.0.1`; that needs a small change in
-  `apps/api/src/main.ts` and an `API_HOST` variable, because Docker needs it on `0.0.0.0`.
+- **The API is on loopback too.** `run-local.ps1` starts it with `API_HOST=127.0.0.1`, so
+  `http://<your-pc>:4478` does not answer to your Wi-Fi — and Windows Firewall's old allow rules
+  for `node.exe` no longer have anything to let through. (Docker leaves `API_HOST` unset and
+  keeps `0.0.0.0`, because there the web container has to reach it; that container publishes no
+  port, so it is still not reachable from outside.)
+- **Every route needs a session.** Not just the screens — the JSON API itself refuses without a
+  valid cookie, so nobody can quietly call `POST /api/calls` and spend a minute. The two
+  exceptions are `/api/health` (a probe has to work when the app is broken) and the login.
+- **That decision is made in the API, not the browser.** The web app holds no signing key, so
+  tampering with the page gains nothing.
 
 ---
 
-## 8. When something is wrong
+## 9. When something is wrong
 
 | What you see | Where to look |
 |---|---|
-| The page loads, then everything fails with 500 | the `/api` rewrite is pointing at an old port — §5, rebuild the web app |
+| The page loads, then everything fails with 500 | the `/api` rewrite is pointing at an old port — §6, rebuild the web app |
 | `status` shows a service `DOWN` | `logs\run\<service>.err.log` |
 | The call connects, then silence | `logs\run\agent.out.log`. Usually an Azure region, a Deepgram credit, or the agent registered under a name other than the one the API dispatched to (`LIVEKIT_AGENT_NAME`, default `duke`) |
 | "Can not reach the server" | is `api` up? `http://127.0.0.1:4478/api/health` should answer `{"ok":true}` |
-| The phone shows the page but the microphone is refused | the URL is not `https://` — see §4 |
+| Every screen, including Home, jumps to `/login` | that is the front door working. Sign in. If it happens again immediately after signing in, the cookie is being dropped: check the address is `https://` so a `Secure` cookie is kept |
+| The API answers `503` naming `AUTH_PASSWORD_HASH` | the front door is not set up yet — §4 |
+| Signed in yesterday, signed out this morning | you changed `AUTH_PASSWORD_HASH`. Sessions are signed with it, so replacing it ends every one on purpose |
+| "Duke's own server is not answering" on the login screen | the API is not up: `powershell -File scripts\run-local.ps1 status` |
+| The phone shows the page but the microphone is refused | the URL is not `https://` — see §5 |
 | Nothing works after a reboot | the **Duke** task, §3 |

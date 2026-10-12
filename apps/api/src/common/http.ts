@@ -9,7 +9,7 @@ import { createParamDecorator, type ExecutionContext } from "@nestjs/common";
 import { z } from "zod";
 import { invalidInput } from "./api-error";
 
-export { badRequest, invalidInput, notFound, refused } from "./api-error";
+export { badRequest, invalidInput, notFound, refused, unauthenticated } from "./api-error";
 export type { ApiErrorBody, Failure, FieldProblem } from "./api-error";
 
 /**

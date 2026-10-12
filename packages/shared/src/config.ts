@@ -58,6 +58,18 @@ export const ENV_GROUPS: readonly EnvGroup[] = [
       { key: "LOG_LEVEL", label: "Log level", where: "already set", secret: false, example: "debug", optional: true },
       { key: "LOG_DIR", label: "Log folder", where: "already set", secret: false, example: "logs", optional: true },
       { key: "LOG_RETENTION_DAYS", label: "Log retention (days)", where: "already set", secret: false, example: "14", optional: true },
+      { key: "API_HOST", label: "API bind address", where: "already set", secret: false, example: "127.0.0.1", optional: true },
+    ],
+  },
+  {
+    id: "auth",
+    title: "The front door",
+    why: "Your sign-in. Until both of the first two are set, the API answers 503 and nobody gets in — which is deliberate: this is what stops somebody else spending your free tiers.",
+    url: "",
+    keys: [
+      { key: "AUTH_USERNAME", label: "Username", where: "you choose it", secret: false, example: "admin", optional: true },
+      { key: "AUTH_PASSWORD_HASH", label: "Password hash", where: "run: node scripts/hash-password.mjs \"your password\"", secret: true, optional: true },
+      { key: "AUTH_SESSION_HOURS", label: "Stay signed in (hours)", where: "already set", secret: false, example: "720", optional: true },
     ],
   },
   {

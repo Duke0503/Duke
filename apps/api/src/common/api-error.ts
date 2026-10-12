@@ -25,6 +25,7 @@ import {
   HttpException,
   HttpStatus,
   NotFoundException,
+  UnauthorizedException,
 } from "@nestjs/common";
 import { AppError } from "@duke/shared";
 
@@ -111,6 +112,20 @@ export const notFound = (field: string, problem: string): NotFoundException =>
 /** A 403 for a rule the request breaks rather than a field. */
 export const refused = (code: string, field: string, problem: string): ForbiddenException =>
   new ForbiddenException({ code, message: problem, problems: [{ field, problem }] });
+
+/**
+ * A 401 for a request that has not proved it may be here.
+ *
+ * The code says which kind of "no" this is (`SESSION_REQUIRED`, `SESSION_EXPIRED`,
+ * `SESSION_INVALID`) so the log can tell a habit apart from a guess; the sentence is the same
+ * kind of sentence for all of them, because the difference is not the visitor's business.
+ */
+export const unauthenticated = (
+  code: string,
+  field: string,
+  problem: string,
+): UnauthorizedException =>
+  new UnauthorizedException({ code, message: problem, problems: [{ field, problem }] });
 
 // ---------------------------------------------------------------- reading
 

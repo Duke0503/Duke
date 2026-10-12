@@ -35,7 +35,7 @@ From the architecture discussion:
 | 5 | Language | **TypeScript everywhere** — web, API and voice agent share one domain package. |
 | 6 | Database | **Supabase** (Postgres + Auth + Storage + pgvector in one free service). |
 | 7 | Repo shape | **Monorepo** — `apps/` + `packages/`. |
-| 8 | Auth | **Anonymous device ID first**, real login later. |
+| 8 | Auth | **Anonymous device ID** for "which friends are yours", plus **one password in front of the whole app** so nobody else spends the free tiers. |
 | 9 | Where the server runs | **My own VPS.** The API and the voice agent are pushed to my VPS. No Vercel/Fly needed. |
 | 10 | Backend framework | **NestJS** for the API (modules + dependency injection). The voice agent stays a plain TS worker. Frontend is Next.js only. |
 
@@ -503,7 +503,10 @@ Three things about M1 that are easy to get wrong, written down so they are not r
 
 ## 16. Open questions (later, not now)
 
-- Real login (Supabase Auth) or stay anonymous forever?
+- ~~Real login (Supabase Auth) or stay anonymous forever?~~ **Answered.** The device id stays as
+  the identity — it is what your friends and history belong to — and one password sits in front
+  of the whole app (`docs/run-on-windows.md` §4). Supabase Auth would be a second account system
+  to maintain, for one person who already owns the machine.
 - Long-term memory with pgvector — how much is enough?
 - Offline / text-only mode for bad connections?
 - A tiny always-on host, or keep the actor on my own PC?

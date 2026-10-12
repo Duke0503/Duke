@@ -53,7 +53,11 @@ $services = @(
         Name    = "api"
         Dir     = "apps\api"
         Args    = @("dist\main.js")
-        Env     = @{ API_PORT = $apiPort }
+        # API_HOST keeps the API on loopback. The web app reaches it there, and the tunnel only
+        # ever needs the web app - so a port that carries the whole database is not reachable
+        # from the same Wi-Fi. Docker sets nothing here, which is right: there the web container
+        # has to reach the API over the network.
+        Env     = @{ API_PORT = $apiPort; API_HOST = "127.0.0.1" }
         Artifact = "apps\api\dist\main.js"
         Ready   = "http://127.0.0.1:$apiPort/api/health"
     }

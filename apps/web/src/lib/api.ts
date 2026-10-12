@@ -15,6 +15,7 @@
  * address, and there is no cross-origin request to get wrong.
  */
 
+import { LOGIN_PATH } from "./auth";
 import { deviceId } from "./device";
 
 export const API_BASE = "/api";
@@ -62,6 +63,27 @@ interface RequestOptions {
   readonly signal?: AbortSignal;
 }
 
+/**
+ * The session ended while the app was open — it expired, or it was signed out in another tab.
+ *
+ * The proxy normally catches this before the request is even made, so arriving here means the
+ * cookie went stale mid-visit. Bouncing to the login screen is the only honest thing to do:
+ * every request from now on fails the same way, and the screen would fill up with errors that
+ * all mean "sign in again".
+ *
+ * `replace` rather than `assign`, so the phone's Back button does not return to a screen that
+ * cannot load anything, and the flag stops a burst of failed requests from each starting their
+ * own navigation.
+ */
+let leaving = false;
+
+function sendToLogin(): void {
+  if (typeof window === "undefined" || leaving) return;
+  leaving = true;
+  const here = `${window.location.pathname}${window.location.search}`;
+  window.location.replace(`${LOGIN_PATH}?next=${encodeURIComponent(here)}`);
+}
+
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const headers: Record<string, string> = { "x-device-id": deviceId() };
   let body: string | undefined;
@@ -103,6 +125,8 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   }
 
   if (!response.ok) {
+    if (response.status === 401) sendToLogin();
+
     const errorBody = isErrorBody(parsed) ? parsed : {};
     throw new ApiError(
       response.status,
