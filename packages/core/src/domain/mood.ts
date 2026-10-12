@@ -67,3 +67,61 @@ export function stripMoodTag(text: string): ParsedReply {
   const speech = text.slice(match[0].length).trim();
   return isMood(candidate) ? { mood: candidate, speech } : { mood: null, speech: text.trim() };
 }
+
+// ---------------------------------------------------------------- mood over a call
+
+const ANY_MOOD_TAG = /\[\[([a-zA-Z]+)\]\]/g;
+
+/** Every mood tag in a piece of text, in the order it appears. */
+export function findMoods(text: string): Mood[] {
+  const found: Mood[] = [];
+  ANY_MOOD_TAG.lastIndex = 0;
+  let match = ANY_MOOD_TAG.exec(text);
+  while (match !== null) {
+    const raw = match[1];
+    if (raw !== undefined) {
+      const candidate = raw.toLowerCase();
+      if (isMood(candidate)) found.push(candidate);
+    }
+    match = ANY_MOOD_TAG.exec(text);
+  }
+  return found;
+}
+
+/**
+ * The mood a call was mostly in, for the Session Detail screen and the History list.
+ *
+ * Ties go to whichever mood appeared first, so the result is stable for the same
+ * transcript instead of depending on map iteration order.
+ */
+export function dominantMood(texts: readonly string[]): Mood | null {
+  const counts = new Map<Mood, { count: number; first: number }>();
+  let position = 0;
+
+  for (const text of texts) {
+    for (const mood of findMoods(text)) {
+      const seen = counts.get(mood);
+      if (seen === undefined) {
+        counts.set(mood, { count: 1, first: position });
+      } else {
+        seen.count += 1;
+      }
+      position += 1;
+    }
+  }
+
+  let best: Mood | null = null;
+  let bestCount = 0;
+  let bestFirst = Number.POSITIVE_INFINITY;
+
+  for (const [mood, { count, first }] of counts) {
+    if (count > bestCount || (count === bestCount && first < bestFirst)) {
+      best = mood;
+      bestCount = count;
+      bestFirst = first;
+    }
+  }
+
+  return best;
+}
+
