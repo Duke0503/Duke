@@ -4,7 +4,12 @@
  * `LOG_LEVEL` / `LOG_DIR` from the environment.
  */
 
-import { DEFAULT_ENV_PATHS, loadEnvFiles, type EnvFileReport } from "@duke/shared";
+import { loadEnvFiles, resolveEnvPaths, type EnvFileReport } from "@duke/shared";
 
-/** What was found, so `main.ts` can log it once the logger exists. */
-export const envFileReport: EnvFileReport = loadEnvFiles(DEFAULT_ENV_PATHS);
+/**
+ * What was found, so `main.ts` can log it once the logger exists.
+ *
+ * Anchored with `__dirname` for the same reason as the API: the file is found from wherever the
+ * worker was started, which is not always the repo root.
+ */
+export const envFileReport: EnvFileReport = loadEnvFiles(resolveEnvPaths(__dirname));

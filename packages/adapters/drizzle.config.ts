@@ -11,13 +11,16 @@
  * `drizzle-kit generate` + `migrate` — the schema file does not change either way.
  *
  * The `.env` is read here rather than by drizzle-kit, so it is read the same way the API and the
- * agent read it (`loadEnvFiles`, real environment wins, a missing file is not an error).
+ * agent read it (`loadEnvFiles`, real environment wins, a missing file is not an error). Anchored
+ * with `__dirname`, so `pnpm run db:push` from the repo root and a `drizzle-kit` run from
+ * anywhere else both read the same file.
  */
 
-import { loadEnvFiles } from "@duke/shared";
+import { join } from "node:path";
+import { loadEnvFiles, resolveEnvPaths } from "@duke/shared";
 import { defineConfig } from "drizzle-kit";
 
-loadEnvFiles([".env", "../../.env"]);
+loadEnvFiles(resolveEnvPaths(__dirname));
 
 const url = process.env["DATABASE_URL"] ?? "";
 
@@ -30,9 +33,29 @@ if (url.length === 0) {
   );
 }
 
+/**
+ * Where the schema file is, as drizzle-kit needs to be told it.
+ *
+ * Two things had to be discovered by running this from `C:\` instead of from the package folder,
+ * and neither is guessing:
+ *
+ *   1. `schema` is resolved against the **working directory**, so a relative path only works when
+ *      drizzle-kit is started inside `packages/adapters` — which is what `pnpm run db:push` does,
+ *      and why nobody noticed;
+ *   2. an absolute **Windows** path has to use forward slashes. With backslashes it silently
+ *      reports "No schema files found" (it globs), while `out` is the opposite — it is joined to
+ *      the working directory, where forward slashes end up as `C:\C:\...`.
+ */
+const schemaPath = join(__dirname, "src", "drizzle", "schema.ts").replaceAll("\\", "/");
+
 export default defineConfig({
   dialect: "postgresql",
-  schema: "./src/drizzle/schema.ts",
+  schema: schemaPath,
+  // Relative on purpose. `out` is only read by `drizzle-kit generate` — the migration workflow
+  // Duke deliberately does not use (`push` never looks at it) — and drizzle-kit both joins *and*
+  // resolves it against the working directory depending on where it is written, so an absolute
+  // value produces a mangled path like `...\adapters\C:\Project\...`. Relative is correct
+  // whenever `generate` is run from this package, which is where it belongs.
   out: "./drizzle",
   dbCredentials: { url },
   // Print the statements it is about to run. This is a command you run by hand, and being able

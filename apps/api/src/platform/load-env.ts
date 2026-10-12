@@ -10,7 +10,12 @@
  * to boot without one and report what is missing.
  */
 
-import { DEFAULT_ENV_PATHS, loadEnvFiles, type EnvFileReport } from "@duke/shared";
+import { loadEnvFiles, resolveEnvPaths, type EnvFileReport } from "@duke/shared";
 
-/** What was found, so `main.ts` can log it once the logger exists. */
-export const envFileReport: EnvFileReport = loadEnvFiles(DEFAULT_ENV_PATHS);
+/**
+ * What was found, so `main.ts` can log it once the logger exists.
+ *
+ * `__dirname` (not the working directory) is what makes `node dist/main.js` work from anywhere —
+ * including from `C:\`, which is exactly where this was found to fail.
+ */
+export const envFileReport: EnvFileReport = loadEnvFiles(resolveEnvPaths(__dirname));

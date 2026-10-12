@@ -3,7 +3,9 @@
  *
  * The whole project is built so that **the last step is pasting keys**. That only works if the
  * keys are actually picked up, from whichever folder the process happens to start in, without
- * anyone remembering a flag.
+ * anyone remembering a flag. `resolveEnvPaths` is what makes that true: it anchors the search to
+ * the code's own location as well as the working directory, so a process started from `C:\` still
+ * finds the repo's `.env`.
  *
  * Why not `node --env-file`? Because then every way of starting Duke has to remember it:
  * `node --watch` in dev, `tsx` for the agent, Docker, a systemd unit. One of them eventually
@@ -19,7 +21,8 @@
  *     literal. Boring is the feature: a surprise here is a broken key at 2am.
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 
 export interface EnvFileReport {
   /** Paths that existed and were read, in order. */
@@ -33,13 +36,74 @@ export interface EnvFileReport {
 }
 
 /**
- * Where to look for `.env`, relative to the process's working directory.
+ * Where to look for `.env`, **relative to the process's working directory**.
  *
  * Two entries on purpose: the service folders are `apps/api` and `apps/agent`, so a run from
  * inside a service finds its own `.env`, and a run from the repo root finds the shared one.
- * A single root `.env` is what the deploy uses.
+ *
+ * These are only correct when the process starts in the right folder, which is why nothing in
+ * the apps uses this directly any more — they call {@link resolveEnvPaths}, which adds an
+ * anchor that does not move with the working directory. This list stays because it is the
+ * documented, boring default, and it is what a test can reason about without a filesystem.
  */
 export const DEFAULT_ENV_PATHS: readonly string[] = [".env", "../../.env"];
+
+/** Files that exist at the top of this repo and nowhere below it. */
+const ROOT_MARKERS: readonly string[] = ["pnpm-workspace.yaml", ".git"];
+
+/** How far up to walk. Deep enough for `apps/api/dist/platform`, shallow enough to be bounded. */
+const MAX_ROOT_DEPTH = 8;
+
+/**
+ * Walk up from a folder until something only the repo root has.
+ *
+ * `exists` is a parameter so the walk can be tested without a filesystem, which is the part of
+ * this file worth testing: everything else is `readFileSync`.
+ */
+export function findRepoRoot(
+  from: string,
+  exists: (path: string) => boolean = existsSync,
+): string | null {
+  let dir = resolve(from);
+
+  for (let depth = 0; depth < MAX_ROOT_DEPTH; depth += 1) {
+    if (ROOT_MARKERS.some((marker) => exists(join(dir, marker)))) return dir;
+
+    const parent = dirname(dir);
+    // Top of the drive (or `/`): there is nothing above it to look at.
+    if (parent === dir) break;
+    dir = parent;
+  }
+
+  return null;
+}
+
+/**
+ * The `.env` candidates for a process whose code lives in `startDir`.
+ *
+ * **Two anchors, because one is not enough.** The working directory is how a developer expects
+ * it (`pnpm --filter @duke/api start` from `apps/api`, `pnpm run db:push` from `packages/adapters`),
+ * and the repo root is found by walking up from the *code's own folder*. Without the second one,
+ * `node C:\\Duke\\apps\\api\\dist\\main.js` run from `C:\\` reads no file at all and reports every
+ * key as missing — with the keys sitting right there in `.env`. That is not a hypothetical: it is
+ * how this was found.
+ *
+ * Order is precedence, because {@link loadEnvFiles} lets the first file win: the working
+ * directory, then its parent (the repo root, for a process started inside a service folder),
+ * then the anchored root.
+ */
+export function resolveEnvPaths(
+  startDir: string,
+  cwd: string = process.cwd(),
+  exists: (path: string) => boolean = existsSync,
+): string[] {
+  const candidates: string[] = [join(cwd, ".env"), join(cwd, "..", "..", ".env")];
+
+  const root = findRepoRoot(startDir, exists);
+  if (root !== null) candidates.push(join(root, ".env"));
+
+  return dedupe(candidates);
+}
 
 const KEY_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 

@@ -1,8 +1,14 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_ENV_PATHS, loadEnvFiles, parseEnvFile } from "./env-file";
+import {
+  DEFAULT_ENV_PATHS,
+  findRepoRoot,
+  loadEnvFiles,
+  parseEnvFile,
+  resolveEnvPaths,
+} from "./env-file";
 
 /**
  * This runs before the app can report anything, so it must be boring and it must not throw.
@@ -125,5 +131,94 @@ describe("loadEnvFiles", () => {
 
   it("looks in the service folder and the repo root by default", () => {
     expect(DEFAULT_ENV_PATHS).toEqual([".env", "../../.env"]);
+  });
+});
+
+/**
+ * The bug these exist for: `node C:\Duke\apps\api\dist\main.js` started from `C:\` read no
+ * `.env` at all, and the API reported all nine keys as missing with the keys sitting in the
+ * file. `im` is the working directory and `code` is where the file that does the loading lives;
+ * they are only the same when you happen to start in the right folder.
+ */
+describe("findRepoRoot", () => {
+  const marker = (dir: string): string => join(dir, "pnpm-workspace.yaml");
+
+  it("walks up from the code's folder to the marker", () => {
+    const root = resolve("fake-root");
+    const exists = (path: string): boolean => path === marker(root);
+
+    expect(findRepoRoot(resolve(root, "apps", "api", "dist"), exists)).toBe(root);
+  });
+
+  it("stops at the nearest marker, not the highest", () => {
+    const inner = resolve("outer", "inner");
+    const markers = new Set([marker(inner), marker(resolve("outer"))]);
+    const exists = (path: string): boolean => markers.has(path);
+
+    expect(findRepoRoot(resolve(inner, "packages", "shared", "dist"), exists)).toBe(inner);
+  });
+
+  it("gives up at the top of the drive instead of walking forever", () => {
+    expect(findRepoRoot(resolve("anywhere"), () => false)).toBeNull();
+  });
+});
+
+describe("resolveEnvPaths", () => {
+  const marker = (dir: string): string => join(dir, "pnpm-workspace.yaml");
+
+  // Its own temp folder: the real-filesystem test below needs one, and sharing the other
+  // describe's would couple two tests for no reason.
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "duke-root-"));
+  });
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("puts the working directory first, so a .env next to you wins", () => {
+    const cwd = resolve("work");
+    const paths = resolveEnvPaths(resolve(cwd, "apps", "api"), cwd, () => false);
+
+    expect(paths[0]).toBe(join(cwd, ".env"));
+    expect(paths[1]).toBe(join(cwd, "..", "..", ".env"));
+  });
+
+  it("adds the anchored root, so being started from C: is no longer fatal", () => {
+    const root = resolve("duke");
+    const exists = (path: string): boolean => path === marker(root);
+
+    const paths = resolveEnvPaths(
+      resolve(root, "apps", "api", "dist"),
+      resolve("somewhere-else"),
+      exists,
+    );
+
+    expect(paths).toContain(join(root, ".env"));
+  });
+
+  it("lists a candidate once, even when the cwd is the root", () => {
+    const root = resolve("duke");
+    const exists = (path: string): boolean => path === marker(root);
+
+    const paths = resolveEnvPaths(root, root, exists);
+
+    expect(paths.filter((path) => path === join(root, ".env"))).toHaveLength(1);
+  });
+
+  it("still offers the working directory when there is no marker anywhere", () => {
+    const cwd = resolve("work");
+
+    expect(resolveEnvPaths(cwd, cwd, () => false)).toHaveLength(2);
+  });
+
+  it("finds a real marker with the real filesystem", async () => {
+    await writeFile(join(dir, "pnpm-workspace.yaml"), "packages:\n", "utf8");
+
+    const paths = resolveEnvPaths(join(dir, "apps", "api", "dist"), dir);
+
+    expect(paths).toContain(join(dir, ".env"));
   });
 });
