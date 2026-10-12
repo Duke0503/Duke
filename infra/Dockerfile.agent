@@ -1,0 +1,89 @@
+# The voice worker image.
+#
+#   docker build -f infra/Dockerfile.agent -t duke-agent .
+#
+# Build from the repo root, so the whole pnpm workspace is the build context.
+#
+# This container joins every call as a participant: it listens (Deepgram), thinks (Groq) and
+# speaks (Azure). It is the only service that is *not* behind Caddy, because nothing talks to it
+# — it dials out to LiveKit and asks for work. So there is no port here, no healthcheck (a worker
+# with nothing to do is a worker that is working) and no `EXPOSE`.
+#
+# What it must not do is die. It is supervised by the LiveKit CLI: the process you see is a
+# supervisor that forks a fresh child per call, and a crashed call is a crashed child, not a
+# crashed container. `restart: unless-stopped` in compose covers the case where the supervisor
+# itself goes down.
+#
+# `node:24-slim` (Debian) for the same reason as the API: `@livekit/rtc-ffi-bindings` and
+# `onnxruntime-node` (the voice-activity model that decides when you have finished speaking) are
+# native modules, and glibc is what they are built for. Alpine's musl is a coin flip.
+
+# syntax=docker/dockerfile:1
+
+# ------------------------------------------------------------------ build
+FROM node:24-slim AS build
+
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+RUN corepack enable
+
+WORKDIR /app
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+COPY packages/shared/package.json packages/shared/
+COPY packages/core/package.json packages/core/
+COPY packages/adapters/package.json packages/adapters/
+COPY apps/api/package.json apps/api/
+COPY apps/agent/package.json apps/agent/
+COPY apps/web/package.json apps/web/
+
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
+    pnpm install --frozen-lockfile
+
+COPY packages ./packages
+COPY apps/agent ./apps/agent
+
+# `@duke/agent...` = the worker and everything it depends on, in dependency order.
+RUN pnpm --filter @duke/agent... build
+
+# ------------------------------------------------------------------ runtime
+FROM node:24-slim AS runtime
+
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+ENV NODE_ENV=production
+RUN corepack enable
+
+WORKDIR /app
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY packages/shared/package.json packages/shared/
+COPY packages/core/package.json packages/core/
+COPY packages/adapters/package.json packages/adapters/
+COPY apps/api/package.json apps/api/
+COPY apps/agent/package.json apps/agent/
+COPY apps/web/package.json apps/web/
+
+# `--prod` is what keeps this image from carrying TypeScript, vitest and Next.js. The native
+# packages (the LiveKit FFI bindings, onnxruntime) are installed here, on the platform that will
+# run them — the whole reason the runtime stage does its own install instead of inheriting a
+# symlink farm from the build stage.
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
+    pnpm install --frozen-lockfile --prod
+
+COPY --from=build /app/packages/shared/dist packages/shared/dist
+COPY --from=build /app/packages/core/dist packages/core/dist
+COPY --from=build /app/packages/adapters/dist packages/adapters/dist
+COPY --from=build /app/apps/agent/dist apps/agent/dist
+
+# The daily log files this container writes. Mounted as a volume by compose so they outlive a
+# rebuild: a call that went wrong is diagnosed from the file, and the file has to still be there.
+RUN mkdir -p /app/logs/all /app/logs/error \
+ && useradd --system --create-home --uid 10001 duke \
+ && chown -R duke:duke /app
+
+USER duke
+
+# `start` is the LiveKit CLI's own subcommand — a bare `node dist/main.js` prints help and exits,
+# which is a fun thing to discover at 2am from a container log.
+CMD ["node", "apps/agent/dist/main.js", "start"]

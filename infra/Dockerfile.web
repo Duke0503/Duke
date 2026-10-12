@@ -1,0 +1,92 @@
+# The web image.
+#
+#   docker build -f infra/Dockerfile.web -t duke-web .
+#
+# Build from the repo root, so the whole pnpm workspace is the build context.
+#
+# Same two-stage shape as the API. Next has one extra requirement: `next build` needs the whole
+# `node_modules` (its compiler is a native binary), while `next start` only needs the production
+# dependencies plus the `.next` output. So the build stage keeps everything, and the runtime
+# stage re-installs with `--prod` and copies the build across.
+#
+# `API_ORIGIN` is read by the Next **server**, never by the browser: the browser only ever calls
+# `/api` on its own origin, and either Next (a rewrite, in development) or Caddy (production)
+# forwards it to the API. In compose it is the API's service name.
+
+# syntax=docker/dockerfile:1
+
+# ------------------------------------------------------------------ build
+FROM node:24-slim AS build
+
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+RUN corepack enable
+
+WORKDIR /app
+
+# Manifests first: changing a source file must not throw away the dependency install. Every
+# workspace manifest is copied even where it is not needed, because pnpm reads
+# pnpm-workspace.yaml and expects to find the packages it names.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+COPY packages/shared/package.json packages/shared/
+COPY packages/core/package.json packages/core/
+COPY packages/adapters/package.json packages/adapters/
+COPY apps/api/package.json apps/api/
+COPY apps/agent/package.json apps/agent/
+COPY apps/web/package.json apps/web/
+
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
+    pnpm install --frozen-lockfile
+
+COPY packages ./packages
+COPY apps/web ./apps/web
+
+# The web imports `@duke/core` for the voice map, the reveal limits and the feedback-style labels,
+# so the workspace packages have to be compiled before Next reads them.
+RUN pnpm --filter @duke/core... build \
+ && pnpm --filter @duke/web build
+
+# ------------------------------------------------------------------ runtime
+FROM node:24-slim AS runtime
+
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+ENV NODE_ENV=production
+RUN corepack enable
+
+WORKDIR /app
+
+# The same six manifest lines as every other stage — see the note in Dockerfile.api: a project the
+# lockfile names and the tree does not have is a hard failure, not a lighter install.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY packages/shared/package.json packages/shared/
+COPY packages/core/package.json packages/core/
+COPY packages/adapters/package.json packages/adapters/
+COPY apps/api/package.json apps/api/
+COPY apps/agent/package.json apps/agent/
+COPY apps/web/package.json apps/web/
+
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
+    pnpm install --frozen-lockfile --prod
+
+# What `next start` reads: the build output, the config it was built with, anything in `public`,
+# and the compiled workspace packages it imports at runtime.
+COPY --from=build /app/apps/web/.next apps/web/.next
+COPY --from=build /app/apps/web/next.config.ts apps/web/next.config.ts
+COPY --from=build /app/apps/web/public apps/web/public
+COPY --from=build /app/packages/shared/dist packages/shared/dist
+COPY --from=build /app/packages/core/dist packages/core/dist
+
+RUN useradd --system --create-home --uid 10001 duke
+USER duke
+
+WORKDIR /app/apps/web
+
+EXPOSE 3000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+
+# The Next binary directly rather than through pnpm: one less process in front of the server, and
+# the working directory is already the app, which is what `next start` looks in for `.next`.
+CMD ["node", "node_modules/next/dist/bin/next", "start", "-p", "3000"]

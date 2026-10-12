@@ -1,0 +1,4 @@
+# Duke is one person's phone app on a domain with no login. Nothing here should end up in a
+# search engine, and there is nothing to crawl that would not be personal.
+User-agent: *
+Disallow: /

@@ -43,7 +43,7 @@ import { readBrief, sessionIdFromRoom } from "./brief";
 import { DukeAgent } from "./duke-agent";
 import { TurnRecorder } from "./recorder";
 
-const DEFAULT_DEEPGRAM_MODEL = "nova-2";
+const DEFAULT_DEEPGRAM_MODEL = "nova-3";
 const DEFAULT_GROQ_MODEL = "llama-3.3-70b-versatile";
 const DEFAULT_LOG_RETENTION_DAYS = 14;
 
@@ -183,7 +183,15 @@ async function answerCall(
     await adapters.close();
   });
 
-  await session.start({ agent: new DukeAgent(brief, azureTts), room: ctx.room });
+  await session.start({
+    agent: new DukeAgent(brief, azureTts, (reason) =>
+      log.warn(
+        { sessionId, character: brief.characterName, reason },
+        "the savage guard rewrote a sentence",
+      ),
+    ),
+    room: ctx.room,
+  });
 
   log.info(
     { sessionId, character: brief.characterName, voice: brief.voiceId, savage: brief.savage },

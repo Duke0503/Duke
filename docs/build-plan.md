@@ -453,6 +453,58 @@ Also: a `usage_ledger` row per call, and cache greetings/fillers in Redis so the
 **Done when:** I open my domain on my phone, create a character, and have a call —
 with the agent running on **my VPS**, and no service asking for money.
 
+### What was built (and the four places the plan above was incomplete)
+
+**SavageGuard, second line of defence.** `checkSavage` existed in core and was never called.
+It is now wired into the reply stream in `apps/agent/src/savage-filter.ts`:
+
+- The check runs on **sentences**, not tokens. A reply is spoken as it arrives, so the unit has
+  to be complete *and* early; a sentence is exactly what the Azure plugin already waits for
+  before it synthesises, so the guard costs no delay a listener can hear.
+- It runs **only for a savage character**. `checkSavage` is deliberately blunt, and a friendly
+  teacher saying "I hate that construction" is a good sentence that the hostility rule would
+  flag. Outside savage mode the prompt never asked for roasting, so the guard is off.
+- A flagged sentence becomes `SAFE_FALLBACK_LINE`, in the same voice, and the reason is logged.
+  Asking the model to try again would mean a second round trip with the microphone open.
+- `MoodTagStripper` and the guard both rebuild chunks, so the two shared helpers moved to
+  `apps/agent/src/reply-chunk.ts` — usage totals, tool calls and flush sentinels have to survive
+  both filters, and that is easier to see in one file than in two.
+
+The sentence splitter is the part that needed tests (`savage-filter.test.ts`, 9 of them, and the
+first run found a real bug). Streamed replies contain `3.5`, `e.g.` and `Mr.`, and all three look
+like a full stop; splitting there hands the guard half a sentence, which is worse than not
+splitting at all. Three rules decide it: a digit before the stop is a decimal, a word with a dot
+inside it is `e.g.`, and a single letter or a listed abbreviation is `Mr.`. The test suite had to
+assert on the **pieces that come back**, not the joined text, because buffering is invisible once
+the text is concatenated — and buffering is the feature.
+
+**The tables had no creation step.** `schema.ts` described eight tables and nothing anywhere
+created them, so the first query on a fresh database would have failed with "relation users does
+not exist". `packages/adapters/drizzle.config.ts` + `pnpm run db:push` now derive the DDL from the
+schema file: no committed migration folder to drift, and `schema.ts` stays the only copy of the
+truth. Verified offline with `drizzle-kit generate`, which read the schema and wrote correct DDL
+for all 8 tables; the file was then deleted, because `push` is the workflow.
+
+**A deploy that is four containers, not three.** The plan said "web + API + agent" and skipped
+the front door. `docker-compose.prod.yml` adds Caddy, which is what makes the domain work and is
+why there is no CORS anywhere in Duke: one origin, `/api/*` to Nest, everything else to Next —
+the same two rules as the development rewrite in `next.config.ts`, one file each.
+
+**`pnpm doctor` cannot be called `pnpm doctor`.** pnpm ships its own `doctor` command, and it
+takes the name silently: bare `pnpm doctor` prints nothing and exits 0, which is the worst
+possible failure for a diagnostic tool. It is `pnpm run doctor`, and the reason is written down
+in both `docs/deploy.md` and the script.
+
+Also: the PWA manifest and the app icon (so the phone can install it instead of opening a tab),
+and `DEEPGRAM_MODEL` defaulted to `nova-3` in the agent — it said `nova-2` while the adapter, the
+key list and `.env.example` all said `nova-3`.
+
+> Not verified: **the images were never built.** No Docker engine was available. The Dockerfiles
+> take the conservative shape (Debian not Alpine, `--frozen-lockfile`, the runtime stage doing its
+> own `--prod` install instead of copying a pnpm symlink tree), and any mistake in them is a
+> build or start error that names the file. `docs/deploy.md` §6 says this on the page the person
+> deploying will read.
+
 ---
 
 ## 5. The whole plan on one page

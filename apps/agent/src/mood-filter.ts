@@ -11,14 +11,9 @@
  */
 
 import { MoodTagStripper, type Mood } from "@duke/core";
-import type { ChatChunk, FlushSentinel } from "@livekit/agents";
+import { isChatChunk, withContent, type ReplyChunk } from "./reply-chunk";
 
-export type ReplyChunk = ChatChunk | string | FlushSentinel;
-
-/** `true` for a chat chunk (an object with a `delta`); `false` for text or a sentinel. */
-function isChatChunk(chunk: ReplyChunk): chunk is ChatChunk {
-  return typeof chunk === "object" && chunk !== null && "delta" in chunk;
-}
+export type { ReplyChunk };
 
 export function stripMoodFromStream(
   stream: ReadableStream<ReplyChunk>,
@@ -53,12 +48,7 @@ export function stripMoodFromStream(
         if (out.mood !== null) onMood(out.mood);
         if (out.text.length === 0) return;
 
-        // A chat chunk keeps everything else it had (id, usage, tool calls) and only loses
-        // the tag from its content.
-        const next: ChatChunk = Object.assign({}, chunk, {
-          delta: Object.assign({}, chunk.delta, { content: out.text }),
-        });
-        controller.enqueue(next);
+        controller.enqueue(withContent(chunk, out.text));
       },
 
       flush(controller): void {

@@ -1,0 +1,57 @@
+# Caddy: the front door.
+#
+# Two jobs, and it is worth being clear about which:
+#
+#   1. **HTTPS.** Caddy asks Let's Encrypt for a certificate for `{$DOMAIN}` on the first start
+#      and renews it forever after, with no configuration and no cron job. Ports 80 and 443 have
+#      to be reachable from the internet for that to work; nothing else has to be open.
+#
+#   2. **One origin.** The browser only ever talks to this domain. `/api/*` goes to the Nest
+#      process, everything else goes to Next. That is why there is no CORS configuration
+#      anywhere in Duke and no API URL in the front-end code — it is all one origin, and it
+#      stays one origin in production because of the two `handle` blocks below.
+#
+# `{$DOMAIN}` comes from the environment, which compose fills from `DOMAIN=` in your `.env`.
+#
+# What is NOT here: anything for LiveKit. Audio does not travel through this server. The phone
+# connects straight to LiveKit Cloud over its own websocket, which is the point of using LiveKit
+# — the VPS never has to carry the audio. (Self-hosting LiveKit later would mean adding a
+# websocket route here for `/rtc`, and that is a different project.)
+
+{
+	# The admin API is a local socket for `caddy reload`. This stack reloads with
+	# `docker compose -f docker-compose.prod.yml restart caddy`, so the API is surface area with
+	# no user.
+	admin off
+}
+
+{$DOMAIN} {
+	# The API. The path is passed through unchanged: the Nest routes already say `/api/...`, so
+	# `handle_path` (which strips the prefix) would break every one of them.
+	handle /api/* {
+		reverse_proxy api:3001
+	}
+
+	# Everything else is the Next app. In development Next does this forwarding itself — see the
+	# rewrite in `apps/web/next.config.ts`. Same two rules, one file.
+	handle {
+		reverse_proxy web:3000
+	}
+
+	encode zstd gzip
+
+	# Do not advertise the server, and do not let a browser quietly downgrade to http.
+	header {
+		-Server
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+	}
+
+	# Access logs. They go to the container's stdout, which is `docker compose logs caddy` — and
+	# are the first place to look when the phone says it cannot reach the server.
+	log {
+		output stdout
+		format console
+	}
+}

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Duke">
+  <!--
+    The app mark: the voice line, on the dark console background.
+    Same shape as the animated line on the call screen, so the icon and the app agree.
+    Plain SVG, no text and no font: a favicon is rendered by the browser before any font exists.
+  -->
+  <rect width="64" height="64" rx="14" fill="#0b0f12" />
+  <rect x="13" y="25" width="5" height="14" rx="2.5" fill="#5ce0a0" />
+  <rect x="23" y="16" width="5" height="32" rx="2.5" fill="#5ce0a0" />
+  <rect x="33" y="10" width="5" height="44" rx="2.5" fill="#5ce0a0" />
+  <rect x="43" y="21" width="5" height="22" rx="2.5" fill="#5ce0a0" />
+</svg>

@@ -7,7 +7,8 @@
     "build": "tsc -p tsconfig.build.json",
     "serve": "node --watch dist/main.js start",
     "start": "node dist/main.js start",
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
   },
   "dependencies": {
     "@duke/adapters": "workspace:*",
@@ -22,6 +23,7 @@
   },
   "devDependencies": {
     "@types/node": "^26.6.5",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "vitest": "^3.0.0"
   }
 }

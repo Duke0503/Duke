@@ -11,7 +11,8 @@
     "build": "tsc -p tsconfig.build.json",
     "dev": "tsc -p tsconfig.build.json --watch --preserveWatchOutput",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "db:push": "drizzle-kit push"
   },
   "dependencies": {
     "@duke/core": "workspace:*",
@@ -23,6 +24,7 @@
   },
   "devDependencies": {
     "@types/node": "^26.6.5",
+    "drizzle-kit": "^0.31.11",
     "typescript": "^7.0.2",
     "vitest": "^3.0.0"
   }

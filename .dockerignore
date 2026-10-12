@@ -1,0 +1,39 @@
+# What never goes into an image.
+#
+# The one that matters is `.env`: a build context is copied into the image, and an image is
+# pushed to a registry and left lying around. The container gets its secrets from the
+# environment at run time (see infra/docker-compose.prod.yml), never from the build.
+#
+# Everything else here is either rebuilt inside the image (node_modules, dist, .next) or is not
+# needed to run it (docs, the design file, agent tooling, local logs).
+
+# --- secrets and local state ---
+.env
+.env.*
+!.env.example
+logs/
+*.log
+
+# --- rebuilt inside the image ---
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+.next/
+**/.next/
+next-env.d.ts
+*.tsbuildinfo
+coverage/
+drizzle/
+
+# --- not part of the app ---
+.git/
+.gitignore
+docs/
+duke.pen
+_bmad/
+.claude/
+.agents/
+.vscode/
+.idea/
+README.md

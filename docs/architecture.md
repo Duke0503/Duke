@@ -453,16 +453,20 @@ LIVEKIT_API_SECRET
 LIVEKIT_AGENT_NAME               # optional, default "duke"
 LIVEKIT_TOKEN_TTL                # optional, join-token lifetime
 DEEPGRAM_API_KEY
-DEEPGRAM_MODEL                   # optional, default "nova-2"
+DEEPGRAM_MODEL                   # optional, default "nova-3"
 GROQ_API_KEY
 GROQ_MODEL                       # optional, default "llama-3.3-70b-versatile"
 AZURE_SPEECH_KEY
 AZURE_SPEECH_REGION
 AZURE_VOICE                      # optional fallback voice
+
+# deploy (read by docker compose and Caddy, never by the app)
+DOMAIN                           # optional; the name Caddy gets a certificate for
 ```
 
 `.env.example` is committed and holds every name with an empty value, so anyone can
-set the project up. `.env` itself is git-ignored.
+set the project up. `.env` itself is git-ignored. The deploy-only names are at the bottom,
+commented out, because the app never reads them — see `docs/deploy.md`.
 
 Rule: anything without `NEXT_PUBLIC_` stays on the server. **Never** put a provider key in
 the browser.

@@ -3,8 +3,9 @@
  *
  * The personality is not here. It is in `brief.systemPrompt`, rendered by the API from the
  * character, the memory card and the budget, and handed to the model as the instructions. This
- * class adds exactly one thing a plain `voice.Agent` cannot do: it takes the `[[mood]]` tag off
- * the live reply and turns it into the Azure emotion for that sentence.
+ * class adds the two things a plain `voice.Agent` cannot do: it takes the `[[mood]]` tag off
+ * the live reply and turns it into the Azure emotion for that sentence, and — for a savage
+ * character — it reads each sentence before the voice does.
  *
  * It overrides `llmNode` rather than reading the finished reply, because a call has no finished
  * reply — the first sentence is already being spoken while the third is still arriving. The
@@ -20,11 +21,14 @@ import {
 import type { SessionBrief } from "@duke/core";
 import type { AzureTts } from "./azure-tts";
 import { stripMoodFromStream, type ReplyChunk } from "./mood-filter";
+import { guardSavageStream } from "./savage-filter";
 
 export class DukeAgent extends voice.Agent<unknown> {
   constructor(
     private readonly brief: SessionBrief,
     private readonly azure: AzureTts,
+    /** Called once per sentence the savage guard had to rewrite. Reason is for the log. */
+    private readonly onSavageFlag: (reason: string) => void = () => undefined,
   ) {
     super({ instructions: brief.systemPrompt });
   }
@@ -34,7 +38,7 @@ export class DukeAgent extends voice.Agent<unknown> {
     return this.brief.characterName;
   }
 
-  /** The reply stream, with the mood tag removed and applied to the voice. */
+  /** The reply stream: mood taken off and applied to the voice, then the savage guard. */
   override async llmNode(
     chatCtx: ChatContext,
     toolCtx: ToolContext,
@@ -46,6 +50,12 @@ export class DukeAgent extends voice.Agent<unknown> {
     const upstream = await voice.Agent.default.llmNode(this, chatCtx, toolCtx, modelSettings);
     if (upstream === null) return null;
 
-    return stripMoodFromStream(upstream, (mood) => this.azure.setMood(mood));
+    const clean = stripMoodFromStream(upstream, (mood) => this.azure.setMood(mood));
+
+    // Off for everyone else: the guard's rules are conservative enough that a friendly teacher
+    // would lose a good sentence to them. See `savage-filter.ts` for the reasoning.
+    if (!this.brief.savage) return clean;
+
+    return guardSavageStream(clean, (reason) => this.onSavageFlag(reason));
   }
 }

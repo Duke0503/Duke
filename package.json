@@ -10,7 +10,9 @@
     "dev": "pnpm -r --parallel --stream dev",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
-    "test": "pnpm -r test"
+    "test": "pnpm -r test",
+    "doctor": "pnpm --filter @duke/shared build && node scripts/doctor.mjs",
+    "db:push": "pnpm --filter @duke/shared build && pnpm --filter @duke/adapters db:push"
   },
   "pnpm": {
     "onlyBuiltDependencies": ["esbuild"]

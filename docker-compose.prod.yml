@@ -1,0 +1,110 @@
+# The production stack. / The four containers Duke needs on the VPS.
+#
+# It lives at the repo root, not in `infra/`, for one reason: Docker Compose reads `.env` from
+# the **project directory** for `${...}` substitution, and the project directory is the folder
+# the compose file is in. The root is where `.env` is. So this file has to be next to it.
+#
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# `infra/docker-compose.yml` is a different file for a different job — Postgres and Redis on your
+# own machine while developing. The two are never run together.
+#
+# Everything here is a named volume, never a bind mount: a bind mount replaces the folder
+# *including its owner*, which is what makes a non-root container unable to write its own logs.
+
+name: duke
+
+services:
+
+  # --- The NestJS API. Not published: only Caddy talks to it, on the internal network. ---
+  api:
+    build:
+      context: .
+      dockerfile: infra/Dockerfile.api
+    image: duke-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      # Relative, so the app resolves it against its own working directory (/app in the image).
+      LOG_DIR: logs
+    volumes:
+      - api-logs:/app/logs
+    expose:
+      - "3001"
+    networks:
+      - duke
+
+  # --- The voice worker. No ports at all: it dials out to LiveKit and waits for work. ---
+  agent:
+    build:
+      context: .
+      dockerfile: infra/Dockerfile.agent
+    image: duke-agent
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      LOG_DIR: logs
+    volumes:
+      - agent-logs:/app/logs
+    networks:
+      - duke
+
+  # --- The Next.js app. Also unpublished: Caddy serves it. ---
+  web:
+    build:
+      context: .
+      dockerfile: infra/Dockerfile.web
+    image: duke-web
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      # The server-side address of the API. The browser never sees this: it calls `/api` on its
+      # own origin and Caddy forwards it. `api` is the compose service name, which is the DNS
+      # name inside this network.
+      API_ORIGIN: http://api:3001
+    depends_on:
+      - api
+    expose:
+      - "3000"
+    networks:
+      - duke
+
+  # --- The front door. The only container with published ports, and the only one with a
+  # certificate. Caddy gets that certificate by itself, from the moment `${DOMAIN}` resolves to
+  # this machine and ports 80 and 443 are open. ---
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      # Set DOMAIN in .env. The fallback keeps `docker compose up` working before the DNS is
+      # pointed at the machine, so the stack can be started in any order.
+      DOMAIN: ${DOMAIN:-localhost}
+    volumes:
+      - ./infra/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Certificates and ACME account keys. This volume is the reason a restart does not
+      # re-request a certificate and hit Let's Encrypt's rate limit.
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - web
+      - api
+    networks:
+      - duke
+
+networks:
+  duke:
+
+volumes:
+  # One volume per writer. The daily rotation and the gzip archive each service runs were built
+  # and tested for a folder of its own files, so they get one.
+  api-logs:
+  agent-logs:
+  caddy-data:
+  caddy-config:

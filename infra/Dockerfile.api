@@ -1,0 +1,99 @@
+# The API image.
+#
+# Build from the repo root, so the whole pnpm workspace is the build context:
+#
+#   docker build -f infra/Dockerfile.api -t duke-api .
+#
+# Two stages, and the split is the point. The **build** stage installs everything including the
+# compilers and turns the TypeScript into `dist/`. The **runtime** stage installs the same
+# lockfile again with `--prod`, so the image that ships contains no TypeScript, no test runner
+# and no drizzle-kit — and, more importantly, its `node_modules` is built fresh in the stage
+# that will use it. Copying a pnpm store between stages means copying a web of symlinks, which
+# works until it quietly does not.
+#
+# `node:24-slim` (Debian) rather than alpine on purpose: `@livekit/rtc-ffi-bindings` and the
+# Next.js compiler are native modules, and glibc is the ground they expect. Image size was the
+# trade, and it is the cheap one. The Node version matches the local toolchain, which is what
+# was actually tested.
+
+# syntax=docker/dockerfile:1
+
+# ------------------------------------------------------------------ build
+FROM node:24-slim AS build
+
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+RUN corepack enable
+
+WORKDIR /app
+
+# Manifests first: changing a source file must not throw away the dependency install.
+# Every workspace manifest is copied even where it is not needed, because pnpm reads
+# pnpm-workspace.yaml and expects to find the packages it names.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+COPY packages/shared/package.json packages/shared/
+COPY packages/core/package.json packages/core/
+COPY packages/adapters/package.json packages/adapters/
+COPY apps/api/package.json apps/api/
+COPY apps/agent/package.json apps/agent/
+COPY apps/web/package.json apps/web/
+
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
+    pnpm install --frozen-lockfile
+
+# Now the source.
+COPY packages ./packages
+COPY apps/api ./apps/api
+
+# `@duke/api...` means the API and everything it depends on, built in dependency order.
+RUN pnpm --filter @duke/api... build
+
+# ------------------------------------------------------------------ runtime
+FROM node:24-slim AS runtime
+
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+ENV NODE_ENV=production
+RUN corepack enable
+
+WORKDIR /app
+
+# Every workspace manifest, in every stage, even where the package is not used. pnpm reads
+# `pnpm-workspace.yaml` and compares what it finds against the lockfile; a project that is named
+# in the lockfile and missing from the tree is an "outdated lockfile" failure, not a smaller
+# install. So the list is the same six lines everywhere and there is nothing to get wrong.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY packages/shared/package.json packages/shared/
+COPY packages/core/package.json packages/core/
+COPY packages/adapters/package.json packages/adapters/
+COPY apps/api/package.json apps/api/
+COPY apps/agent/package.json apps/agent/
+COPY apps/web/package.json apps/web/
+
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
+    pnpm install --frozen-lockfile --prod
+
+# The compiled JS and the manifests that point at it. Nothing else: no src, no tests, no tsconfig.
+COPY --from=build /app/packages/shared/dist packages/shared/dist
+COPY --from=build /app/packages/core/dist packages/core/dist
+COPY --from=build /app/packages/adapters/dist packages/adapters/dist
+COPY --from=build /app/apps/api/dist apps/api/dist
+
+# Logs land here. The compose file mounts a named volume over it, so the daily files survive a
+# rebuild — which is the whole reason for having them.
+RUN mkdir -p /app/logs/all /app/logs/error
+
+# Not root. A container that only needs to read its own code and write its own logs has no
+# reason to be able to do anything else, and the log folder is the only thing it owns.
+RUN useradd --system --create-home --uid 10001 duke \
+ && chown -R duke:duke /app/logs
+USER duke
+
+EXPOSE 3001
+
+# `node dist/main.js` — the API does not use the Nest CLI, so there is nothing between the file
+# and the process. The healthcheck is the same route the VPS uptime check uses.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:'+(process.env.API_PORT||3001)+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+
+CMD ["node", "apps/api/dist/main.js"]
