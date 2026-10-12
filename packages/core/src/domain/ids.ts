@@ -6,12 +6,10 @@ export type CorrectionId = string;
 export type VocabularyId = string;
 
 /**
- * Make a new id.
+ * Makes a new id.
  *
- * Kept behind a parameter on the functions that need it, with this as the default, so a
- * test can pass a counter instead and get a predictable result. `crypto.randomUUID` is a
- * global in Node 24 and in every browser we support.
+ * Declared here, implemented elsewhere on purpose. `core` is pure — it reads no clocks, no
+ * environment and no platform globals — so anything that creates a real id has to be handed
+ * in. Tests pass a counter, the API passes `crypto.randomUUID`.
  */
-export const defaultNewId = (): string => globalThis.crypto.randomUUID();
-
 export type NewId = () => string;

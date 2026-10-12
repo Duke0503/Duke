@@ -25,6 +25,12 @@ export interface SessionRepository {
   appendTurn(turn: Turn): Promise<void>;
   saveCorrections(items: readonly Correction[]): Promise<void>;
   saveVocabulary(items: readonly VocabularyItem[]): Promise<void>;
+  /** The transcript, for the Session Detail screen and the summariser. */
+  listTurns(sessionId: string): Promise<Turn[]>;
+  listCorrections(sessionId: string): Promise<Correction[]>;
+  listVocabulary(sessionId: string): Promise<VocabularyItem[]>;
+  /** The most recent finished session with this character, for "Continue". */
+  latestForCharacter(characterId: string): Promise<Session | null>;
 }
 
 /** Fast, temporary storage (Redis). */
@@ -32,8 +38,8 @@ export interface Cache {
   get<T>(key: string): Promise<T | null>;
   set<T>(key: string, value: T, ttlSeconds?: number): Promise<void>;
   delete(key: string): Promise<void>;
-  /** Returns the new value after adding 1. Used for rate limits and usage. */
-  increment(key: string, ttlSeconds?: number): Promise<number>;
+  /** Adds a value and returns the new total. Used for rate limits and usage. */
+  increment(key: string, by?: number, ttlSeconds?: number): Promise<number>;
 }
 
 export interface Clock {

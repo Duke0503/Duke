@@ -8,7 +8,7 @@
  */
 
 import type { Correction } from "./correction";
-import { defaultNewId, type CorrectionId, type NewId, type SessionId, type VocabularyId } from "./ids";
+import { type CorrectionId, type NewId, type SessionId, type VocabularyId } from "./ids";
 import { type MemoryCard, MEMORY_LIMITS } from "./memory-card";
 import type { VocabularyItem } from "./vocabulary";
 
@@ -115,7 +115,7 @@ export function splitCorrection(text: string): ParsedCorrection | null {
 export function toCorrections(
   sessionId: SessionId,
   summary: SessionSummary,
-  newId: NewId = defaultNewId,
+  newId: NewId,
 ): Correction[] {
   const items: Correction[] = [];
   for (const mistake of summary.mistakes) {
@@ -136,7 +136,7 @@ export function toCorrections(
 export function toVocabulary(
   sessionId: SessionId,
   summary: SessionSummary,
-  newId: NewId = defaultNewId,
+  newId: NewId,
 ): VocabularyItem[] {
   return summary.newWords.map((word) => ({
     id: newId() as VocabularyId,

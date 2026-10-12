@@ -69,6 +69,8 @@ export const ENV_GROUPS: readonly EnvGroup[] = [
       { key: "LIVEKIT_URL", label: "Project URL", where: "Project -> Settings -> Keys (starts with wss://)", secret: false, example: "wss://your-project.livekit.cloud" },
       { key: "LIVEKIT_API_KEY", label: "API key", where: "Project -> Settings -> Keys", secret: true },
       { key: "LIVEKIT_API_SECRET", label: "API secret", where: "Project -> Settings -> Keys", secret: true },
+      { key: "LIVEKIT_AGENT_NAME", label: "Agent name", where: "already set", secret: false, example: "duke", optional: true },
+      { key: "LIVEKIT_TOKEN_TTL", label: "Join token lifetime (seconds)", where: "already set", secret: false, example: "900", optional: true },
     ],
   },
   {
@@ -78,6 +80,7 @@ export const ENV_GROUPS: readonly EnvGroup[] = [
     url: "https://console.deepgram.com",
     keys: [
       { key: "DEEPGRAM_API_KEY", label: "API key", where: "Console -> API Keys -> Create a key", secret: true },
+      { key: "DEEPGRAM_MODEL", label: "Speech model", where: "already set", secret: false, example: "nova-3", optional: true },
     ],
   },
   {
@@ -87,6 +90,7 @@ export const ENV_GROUPS: readonly EnvGroup[] = [
     url: "https://console.groq.com/keys",
     keys: [
       { key: "GROQ_API_KEY", label: "API key", where: "Console -> API Keys -> Create key (starts with gsk_)", secret: true },
+      { key: "GROQ_MODEL", label: "Chat model", where: "already set", secret: false, example: "llama-3.3-70b-versatile", optional: true },
     ],
   },
   {
@@ -97,6 +101,7 @@ export const ENV_GROUPS: readonly EnvGroup[] = [
     keys: [
       { key: "AZURE_SPEECH_KEY", label: "Speech key", where: "Speech resource -> Keys and Endpoint -> KEY 1", secret: true },
       { key: "AZURE_SPEECH_REGION", label: "Region", where: "Speech resource -> Keys and Endpoint -> Location", secret: false, example: "eastus" },
+      { key: "AZURE_VOICE", label: "Default voice", where: "already set", secret: false, example: "en-US-AriaNeural", optional: true },
     ],
   },
   {
