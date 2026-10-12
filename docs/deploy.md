@@ -12,8 +12,9 @@ You need these five things. Nothing else.
 
 | What | Where |
 |---|---|
-| A VPS with a public IP | where the three containers run |
+| A VPS with a public IP | where the three containers run. **2 vCPU / 2 GB is enough**; the box only carries audio, every model is an API call. 40 GB of disk, of which the images and `node_modules` take ~8 GB |
 | A domain, pointing at that IP | for HTTPS, so the phone can use the microphone |
+| **Node 22 or newer** — only if you want `doctor` on the server | the Docker build does not need it (see 2.4) |
 | The repo on GitHub | `https://github.com/Duke0503/Duke` |
 | Your six keys | LiveKit, Deepgram, Groq, Azure, Supabase, Upstash |
 | Docker on the VPS | one command, step 2 |
@@ -72,6 +73,10 @@ pnpm run doctor
 pnpm run db:push
 ```
 
+Those four need **Node 22 or newer** — check with `node --version`; this repo refuses Node 20
+(`engines.node` is `>=22`). Docker does not care, so if you only want the container view, skip
+straight to 2.5.
+
 - **`pnpm run doctor`** reads your `.env` and prints one screen: what is missing, what looks
   wrong, whether the log folder is writable, and whether Postgres and Redis answer. Fix anything
   it marks `FAIL` and run it again. It exits with a non-zero code until the blocking problems are
@@ -109,7 +114,36 @@ ufw enable
 Three ports. 80 and 443 are Caddy; 22 is you. Nothing else is reachable from outside — the API
 and the web app have no published ports at all, and the voice worker dials out and never listens.
 
-### 2.7 Look at it
+### 2.7 If your domain is on Cloudflare
+
+`duke.io.vn` is, so two Cloudflare settings decide whether the certificate ever arrives.
+
+**SSL/TLS mode must be `Full (strict)`.** Cloudflare stands between the phone and this server. In
+*Flexible* mode Cloudflare would talk to the origin over plain HTTP while Caddy insists on HTTPS,
+and the two push each other in a redirect loop — the page simply never loads. *Full (strict)* means
+both hops are HTTPS and the certificate Caddy obtained is the one being verified.
+
+**Leave the proxy on (orange cloud), and leave port 80 open.** Caddy proves it owns the name by
+answering Let's Encrypt on `http://…/.well-known/acme-challenge/`, and Cloudflare passes that
+through to origin port 80. This is why step 2.6 opens 80 as well as 443.
+
+| Type | Name | Content | Proxy |
+|---|---|---|---|
+| A | `friend` | this server's public IP | Proxied (orange) |
+
+> **If the certificate never issues,** set that record to **DNS only** (grey cloud) for ten
+> minutes, watch `docker compose -f docker-compose.prod.yml logs -f caddy` until it says the
+> certificate is obtained, then turn the proxy back on. A grey record takes Cloudflare out of the
+> path entirely, so the challenge cannot be interfered with — including by an "Always Use HTTPS"
+> rule.
+
+**The alternative — open no ports at all.** `cloudflared` can hold a tunnel from this server
+outward, which is how the other VPS on this account already publishes its services. With a tunnel
+there is no Caddy and no inbound 80/443; the tunnel's Public Hostname points at
+`http://localhost:3000`. It is a different setup from everything on this page, so ask before
+choosing it — but on a locked-down network it is the one that always works.
+
+### 2.8 Look at it
 
 ```bash
 docker compose -f docker-compose.prod.yml logs -f caddy
@@ -185,7 +219,7 @@ Being honest about this saves an evening later.
 
 **Tested on the machine this was built on**
 
-- `pnpm typecheck`, `pnpm test` (166 tests) and `pnpm build` all pass.
+- `pnpm typecheck`, `pnpm test` (183 tests) and `pnpm build` all pass.
 - All nine screens boot against an empty `.env`; the API answers with the right error shape and
   the right status code for a missing key.
 - `pnpm run doctor` — every branch: missing keys, placeholder values, wrong shapes, secret
