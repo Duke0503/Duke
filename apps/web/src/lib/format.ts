@@ -10,6 +10,19 @@ import { MOODS, type Mood } from "@duke/core";
 
 const MINUTE = 60;
 
+/**
+ * The app is written in English, so the dates it prints are formatted in English too.
+ *
+ * Passing `undefined` to the `toLocale*` calls below would mean *"use the viewer's device
+ * locale"* — and a phone set to Vietnamese turned the History list's `Thu` into `Th 5` and
+ * `9 Oct` into `8 thg 10`: words nobody wrote, in a language the app does not speak. A device's
+ * settings should not rewrite the interface.
+ *
+ * `en-GB` specifically because it is the one that matches what this file documents: a 24-hour
+ * clock (`21:40`) and the day before the month (`9 Oct`).
+ */
+export const DISPLAY_LOCALE = "en-GB";
+
 /** "12s", "4m 05s", "1h 02m". The unit that matters comes first. */
 export function formatDuration(seconds: number): string {
   const total = Math.max(0, Math.round(seconds));
@@ -40,18 +53,18 @@ export function formatDay(iso: string): string {
   const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
   const days = Math.floor((startOfToday.getTime() - date.getTime()) / 86_400_000);
 
-  if (days < 0) return date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  if (days < 0) return date.toLocaleTimeString(DISPLAY_LOCALE, { hour: "2-digit", minute: "2-digit" });
   if (days === 0) return "Today";
   if (days === 1) return "Yesterday";
-  if (days < 7) return date.toLocaleDateString(undefined, { weekday: "short" });
-  return date.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+  if (days < 7) return date.toLocaleDateString(DISPLAY_LOCALE, { weekday: "short" });
+  return date.toLocaleDateString(DISPLAY_LOCALE, { day: "numeric", month: "short" });
 }
 
 /** "21:40" */
 export function formatTime(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "—";
-  return date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  return date.toLocaleTimeString(DISPLAY_LOCALE, { hour: "2-digit", minute: "2-digit" });
 }
 
 /** The micro-label at the top of Home. */

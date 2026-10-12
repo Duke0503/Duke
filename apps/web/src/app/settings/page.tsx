@@ -31,6 +31,7 @@ import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { deviceId } from "@/lib/device";
+import { DISPLAY_LOCALE } from "@/lib/format";
 import { useSetup, useUsage } from "@/lib/queries";
 import type { Usage } from "@/lib/types";
 
@@ -96,7 +97,11 @@ export default function SettingsPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium">
-                  {new Date(`${usage.data.month}-01T00:00:00`).toLocaleDateString(undefined, {
+                  {/* DISPLAY_LOCALE, not `undefined`: passing undefined means "use the viewer's
+                      device locale", and a phone set to Vietnamese printed this English-only
+                      card's month as "tháng 10 năm 2026". Every other string on this screen is
+                      written by hand, so this was the one place a device could rewrite the UI. */}
+                  {new Date(`${usage.data.month}-01T00:00:00`).toLocaleDateString(DISPLAY_LOCALE, {
                     month: "long",
                     year: "numeric",
                   })}
