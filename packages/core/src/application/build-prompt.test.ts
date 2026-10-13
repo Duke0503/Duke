@@ -49,6 +49,24 @@ describe("buildSystemPrompt", () => {
     expect(buildSystemPrompt({ character: character() })).toMatch(/not an essay/);
   });
 
+  it("asks for spoken English: contractions and the phrasing a native speaker uses", () => {
+    const prompt = buildSystemPrompt({ character: character() });
+    expect(prompt).toMatch(/not a textbook/);
+    expect(prompt).toMatch(/contractions/);
+    expect(prompt).toMatch(/native speaker/);
+  });
+
+  it("names the written-English openers the friend must never use", () => {
+    const prompt = buildSystemPrompt({ character: character() });
+    for (const phrase of ["Certainly", "As an AI", "Let's dive in"]) {
+      expect(prompt).toContain(phrase);
+    }
+  });
+
+  it("keeps native phrases inside the learner's reach", () => {
+    expect(buildSystemPrompt({ character: character() })).toMatch(/no rare idioms/);
+  });
+
   it("marks the active feedback style and still shows the others for contrast", () => {
     const prompt = buildSystemPrompt({ character: character({ feedbackStyle: "correct-aloud" }) });
     expect(prompt).toContain('Feedback style is "correct-aloud"');
