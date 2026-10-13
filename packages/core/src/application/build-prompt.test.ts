@@ -64,7 +64,28 @@ describe("buildSystemPrompt", () => {
   });
 
   it("keeps native phrases inside the learner's reach", () => {
-    expect(buildSystemPrompt({ character: character() })).toMatch(/no rare idioms/);
+    expect(buildSystemPrompt({ character: character() })).toMatch(/no rare idioms/i);
+  });
+
+  it("hands the tone to the role and personality instead of fixing one voice for everyone", () => {
+    const prompt = buildSystemPrompt({ character: character() });
+    expect(prompt).toMatch(/role and personality above decide it/);
+    expect(prompt).toMatch(/must not sound alike/);
+  });
+
+  it("says which example phrases fit any role and which belong to the playful ones", () => {
+    const prompt = buildSystemPrompt({ character: character() });
+    expect(prompt).toMatch(/suit any role/);
+    expect(prompt).toMatch(/playful roles only/);
+  });
+
+  it("names the accent, so the words can match the voice", () => {
+    expect(buildSystemPrompt({ character: character() })).toContain("Accent: American");
+  });
+
+  it("leaves the accent line out entirely when the character has none", () => {
+    expect(buildSystemPrompt({ character: character({ accent: "" }) })).not.toMatch(/Accent:/);
+    expect(buildSystemPrompt({ character: character({ accent: "   " }) })).not.toMatch(/Accent:/);
   });
 
   it("marks the active feedback style and still shows the others for contrast", () => {
