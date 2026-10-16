@@ -327,19 +327,68 @@ that contains real provider keys is not source, and must never be committed.
 ```
 LLM_BASE_URL=http://127.0.0.1:20130/v1
 LLM_API_KEY=<the router's own client key, made in its dashboard>
-LLM_MODEL=gq/openai/gpt-oss-20b
+LLM_MODEL=ag/gemini-2.5-flash
 ```
 
-Blank `LLM_BASE_URL` and the agent talks to Groq directly, exactly as it always did. Nothing else
-changes: `run-local.ps1 start` starts the router too when the binary is there, `stop` stops it, and
-`status` shows it, so it cannot be forgotten after a reboot.
+The model name carries two parts: the provider as the router knows it (`ag` = Antigravity, `gq` =
+Groq) and the model after the slash. Blank `LLM_BASE_URL` and the agent talks to Groq directly,
+exactly as it always did. Nothing else changes: `run-local.ps1 start` starts the router too when the
+binary is there, `stop` stops it, and `status` shows it, so it cannot be forgotten after a reboot.
+
+### Which brain is in front of it, and why that one
+
+Two providers are configured inside the router: **Antigravity** (your own Google account, connected
+through OAuth in the dashboard) and **Groq** (the key Duke already had). The agent asks for
+Antigravity, because it is the one with room in it. `LLM_MODEL` was `gq/openai/gpt-oss-20b` before
+that and switching back is that one line plus a restart.
+
+The model was chosen by measurement on Duke's real system prompt, three turns, streaming, not on
+reputation. First byte is the number that matters on a call: it is how long the character sits
+silent before the voice can start.
+
+| `LLM_MODEL` | first byte | full reply | dashes in 3 replies | sentences per reply |
+|---|---|---|---|---|
+| **`ag/gemini-2.5-flash`** | **1.0 s** | 1.3 s | 0 | 2.0 |
+| `ag/gemini-3.8-flash-low` | 7.1 s | 7.2 s | 0 | 3.0 |
+| `ag/gemini-3.8-flash` | 5.4 s | 5.5 s | 0 | 3.0 |
+| `ag/gpt-oss-120b-medium` | 1.9–3.5 s | — | **3 of 3** | 2.7 |
+| `gq/openai/gpt-oss-20b` (Groq, the old one) | 0.43 s | 1.4 s | 0 | 3.0 |
+
+The two 3.8 models are the better writers and five to seven seconds of silence on a phone call is
+not a trade worth making, so they are out. The `ag/` catalog is misleading in one more way worth
+knowing: the dashboard lists models the account cannot actually serve. `ag/gemini-3.6-flash-low`
+and `ag/gemini-3.1-pro-low` are listed and answer `404 Requested entity was not found`.
+
+`ag/gemini-2.5-flash` also fixed a real annoyance with the old brain. On three turns the old model
+opened with "Oh really?" all three times, which is exactly the scripted feel the prompt is trying to
+avoid. The new one varied every opening.
+
+### The risk, stated plainly
+
+The router's own dashboard puts this warning on the Antigravity connection, and it is not
+decoration:
+
+> This provider uses a subscription/OAuth session not officially licensed for proxy/router use.
+> Account may be restricted or banned. Use at your own risk.
+
+That is your **personal** Google account (`minhduc95gl05@gmail.com`), and this is a path Google has
+not licensed. The realistic outcomes are that the session starts failing, or that the account is
+restricted. Free tiers like this have also disappeared before: the router's own README records the
+iFlow, Qwen Code and Gemini CLI free tiers being discontinued during 2026, so this is rented ground
+either way.
+
+Two things follow from that, and both are already true:
+
+- **Groq is still configured.** Nothing was removed. If Antigravity dies, the fix is one line —
+  `LLM_MODEL=gq/openai/gpt-oss-20b` — and a restart. Duke never became dependent on it.
+- **Duke does not need the router to work.** `LLM_BASE_URL` blank is a supported configuration, not
+  a fallback hack.
 
 **What it does not do.** Two things worth being blunt about, because both are easy to assume:
 
-1. **It does not raise a provider's ceiling.** Routing Groq through it is still Groq, with the same
-   free-tier limit. A bigger ceiling only appears when a *different provider* is added inside the
-   router — and that needs a key from somewhere (Google AI Studio's free Gemini key, for instance),
-   which only you can create.
+1. **It does not raise a ceiling by itself.** A router owns no models. Pointing `LLM_MODEL` at
+   Antigravity is what changed the ceiling, and pointing it back at `gq/...` puts the same Groq
+   limit back.
 2. **It does not fix a long call losing its thread, and it does not save tokens per turn.** Every
    chat API is stateless: Duke re-sends the whole conversation each turn, and a router does not
    change how much is sent. Its own token savers compress tool output, and Duke sends no tools.
@@ -349,7 +398,9 @@ bound to loopback on purpose: it holds provider credentials, and the version tha
 public default password is remotely takeable over if it is exposed. If you install it yourself
 elsewhere, bind `127.0.0.1` and set `INITIAL_PASSWORD` before the first start.
 
-**Before it was switched on, the path was proven end to end**, not assumed: the plugin was pointed
-at the router with the same construction the agent uses, it streamed a clean reply back
-(`"The router path works."`), and a deliberately-dashed reply came out of the dash rule with no dash
-in it. See §9 for the one thing that *is* fixed here: `DashRewriter`, which needs no router at all.
+**Before it was switched on, the path was proven end to end**, not assumed. Twice: first with the
+plugin pointed at the router in the agent's own construction, which streamed back
+`"The router path works."`; then on the real system prompt, where the reply came back
+`[[friendly]] Oh no worries at all, I've just been unpacking boxes. Long story short, my flat is
+still a total mess.` — valid mood tag, no dash, staying in the character's role, in 1.4 s.
+See §9 for the one thing that *is* fixed here and needs no router at all: `DashRewriter`.
