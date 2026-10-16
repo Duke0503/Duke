@@ -48,6 +48,14 @@ $apiPort = Get-EnvValue "API_PORT" "4478"
 $nextBin = Join-Path $root "apps\web\node_modules\next\dist\bin\next"
 if (-not (Test-Path $nextBin)) { $nextBin = Join-Path $root "node_modules\next\dist\bin\next" }
 
+# The optional brain router. `.9router-go` is gitignored: it is a downloaded binary plus a SQLite
+# database that holds real provider keys, so it is not source and must never be committed. When it
+# is present the agent reaches it through `LLM_BASE_URL` in .env, which makes it part of a working
+# call - so it starts and stops with everything else rather than being left for you to remember.
+$routerExe = Join-Path $root ".9router-go\9router-go.exe"
+$routerData = Join-Path $root ".9router-go\data"
+$routerPort = 20130
+
 $services = @(
     [pscustomobject]@{
         Name    = "api"
@@ -90,8 +98,59 @@ function Get-Recorded {
     } catch { return @() }
 }
 
+function Test-RouterReady {
+    try {
+        $null = Invoke-WebRequest -Uri "http://127.0.0.1:$routerPort/health" -TimeoutSec 3 -UseBasicParsing
+        return $true
+    } catch { return $false }
+}
+
+function Start-Router {
+    if (-not (Test-Path $routerExe)) { return }
+    if (Test-RouterReady) {
+        Write-Host ("  {0,-8} already up   port {1}" -f "router", $routerPort)
+        return
+    }
+
+    # Port, address and data folder only. The dashboard password is read on the very first start and
+    # stored hashed in the database by then, so keeping it here would put a secret in the repo for
+    # no reason. HOST is loopback: the router holds provider credentials and has no business being
+    # reachable from the same Wi-Fi.
+    $env:PORT = "$routerPort"
+    $env:HOST = "127.0.0.1"
+    $env:DATA_DIR = $routerData
+    try {
+        $null = & $routerExe start
+    } finally {
+        Remove-Item env:PORT, env:HOST, env:DATA_DIR -ErrorAction SilentlyContinue
+    }
+
+    Write-Host ("  {0,-8} started   port {1}" -f "router", $routerPort)
+}
+
+function Stop-Router {
+    if (-not (Test-Path $routerExe)) { return }
+    if (-not (Test-RouterReady)) { return }
+
+    # `stop` is a short-lived CLI process, not the server: it finds the daemon by reading DATA_DIR
+    # and looking for the pid file there. Without the same value `start` used it looks in the
+    # platform default folder (%APPDATA%\9router), finds nothing, and leaves the router running.
+    $env:DATA_DIR = $routerData
+    try {
+        $null = & $routerExe stop
+    } finally {
+        Remove-Item env:DATA_DIR -ErrorAction SilentlyContinue
+    }
+
+    Write-Host ("  {0,-8} stopped" -f "router")
+}
+
 function Start-Duke {
     New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+
+    # Before the early return below: if everything is already up but the router is not, a call still
+    # fails, and "already running" would be a lie.
+    Start-Router
 
     $alive = @(Get-Recorded | Where-Object { Get-Process -Id $_.Pid -ErrorAction SilentlyContinue })
     if ($alive.Count -gt 0) {
@@ -182,6 +241,9 @@ function Stop-Duke {
     }
 
     Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
+
+    # Last: the agent has already stopped by now, so nothing is mid-turn against it.
+    Stop-Router
 }
 
 function Show-Status {
@@ -208,6 +270,11 @@ function Show-Status {
             "no answer"
         }
         Write-Host ("  {0,-8} {1}  ->  {2}" -f $service.Name, $service.Ready, $answer)
+    }
+
+    if (Test-Path $routerExe) {
+        $answer = if (Test-RouterReady) { "HTTP 200" } else { "no answer" }
+        Write-Host ("  {0,-8} {1}  ->  {2}" -f "router", "http://127.0.0.1:$routerPort/health", $answer)
     }
 
     Write-Host ""

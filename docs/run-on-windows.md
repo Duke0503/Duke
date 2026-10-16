@@ -18,9 +18,11 @@ api    99 MB      agent  134 MB      web  78 MB      =  310 MB
 | `api` | NestJS. Characters, sessions, LiveKit tokens. | `API_PORT` (4478) | `127.0.0.1` only |
 | `agent` | the voice worker | a health endpoint on `8081`, loopback only | nothing outside this machine |
 | `web` | the screens you open | `WEB_PORT` (4477) | `127.0.0.1` only, plus the tunnel |
+| `router` | optional. 9router-go, the brain signpost. Only runs when `LLM_BASE_URL` is set — §10 | `20130` | `127.0.0.1` only |
 
-Three processes and no Docker. The ports are read from `.env`, never hardcoded, so the launcher
-and the tunnel can never disagree about where the web app is.
+Three processes and no Docker. A fourth, the optional router, joins them when `LLM_BASE_URL` is
+set. The ports are read from `.env`, never hardcoded, so the launcher and the tunnel can never
+disagree about where the web app is.
 
 Nothing here is reachable from your network. The web app is loopback-only, and so is the API —
 the launcher starts it with `API_HOST=127.0.0.1`, so the port that holds the database does not
@@ -46,6 +48,7 @@ powershell -ExecutionPolicy Bypass -File scripts\run-local.ps1 restart
   web      up    pid 31416   78 MB
   api      http://127.0.0.1:4478/api/health  ->  HTTP 200
   web      http://127.0.0.1:4477  ->  HTTP 200
+  router   http://127.0.0.1:20130/health  ->  HTTP 200
 ```
 
 Logs, one pair per service: `logs\run\<service>.out.log` and `.err.log`.
@@ -305,3 +308,48 @@ WEB_ORIGIN=https://friend.duke.io.vn
 | "Duke's own server is not answering" on the login screen | the API is not up: `powershell -File scripts\run-local.ps1 status` |
 | The phone shows the page but the microphone is refused | the URL is not `https://` — see §5 |
 | Nothing works after a reboot | the **Duke** task, §3 |
+| `status` shows a `router` line with no answer, or the friend goes quiet mid-call | the brain signpost is down. `powershell -File scripts\run-local.ps1 restart` starts it again — §10 |
+
+---
+
+## 10. The router: an optional signpost in front of the brain
+
+This is the newest piece and the most optional. Read this before turning it on.
+
+**What it is.** [`9router-go`](https://github.com/luqman-v1/9router-go) is a small local gateway
+that speaks the same OpenAI shape Duke already speaks. It is not a model and it is not a provider:
+it holds provider keys, forwards each turn, and can move to a different provider when one refuses.
+It lives in `.9router-go\`, which is **git-ignored** — a downloaded binary plus a small database
+that contains real provider keys is not source, and must never be committed.
+
+**How it is switched on.** Three names in `.env`:
+
+```
+LLM_BASE_URL=http://127.0.0.1:20130/v1
+LLM_API_KEY=<the router's own client key, made in its dashboard>
+LLM_MODEL=gq/openai/gpt-oss-20b
+```
+
+Blank `LLM_BASE_URL` and the agent talks to Groq directly, exactly as it always did. Nothing else
+changes: `run-local.ps1 start` starts the router too when the binary is there, `stop` stops it, and
+`status` shows it, so it cannot be forgotten after a reboot.
+
+**What it does not do.** Two things worth being blunt about, because both are easy to assume:
+
+1. **It does not raise a provider's ceiling.** Routing Groq through it is still Groq, with the same
+   free-tier limit. A bigger ceiling only appears when a *different provider* is added inside the
+   router — and that needs a key from somewhere (Google AI Studio's free Gemini key, for instance),
+   which only you can create.
+2. **It does not fix a long call losing its thread, and it does not save tokens per turn.** Every
+   chat API is stateless: Duke re-sends the whole conversation each turn, and a router does not
+   change how much is sent. Its own token savers compress tool output, and Duke sends no tools.
+
+**Where it went.** The dashboard is `http://127.0.0.1:20130` on this machine only. The binary is
+bound to loopback on purpose: it holds provider credentials, and the version that ships with a
+public default password is remotely takeable over if it is exposed. If you install it yourself
+elsewhere, bind `127.0.0.1` and set `INITIAL_PASSWORD` before the first start.
+
+**Before it was switched on, the path was proven end to end**, not assumed: the plugin was pointed
+at the router with the same construction the agent uses, it streamed a clean reply back
+(`"The router path works."`), and a deliberately-dashed reply came out of the dash rule with no dash
+in it. See §9 for the one thing that *is* fixed here: `DashRewriter`, which needs no router at all.

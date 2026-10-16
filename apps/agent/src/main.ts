@@ -7,7 +7,7 @@
  * The shape of a call:
  *
  *   connect -> wait for the phone -> read the brief from Redis
- *     -> Deepgram (ears) -> Groq (brain) -> Azure (voice, with the mood)
+ *     -> Deepgram (ears) -> the brain (Groq, or a local router) -> Azure (voice, with the mood)
  *
  * Nothing here re-derives the personality or the voice. The brief is the single source of
  * truth, written by the API, so there is one implementation of the prompt rules and not two.
@@ -190,7 +190,25 @@ async function answerCall(
     reasoningEffort: groqReasoningEffort(groqModel),
   };
 
-  const llm = LLM.withGroq(groqOptions);
+  // Where the brain actually answers. Left unset, the request goes to Groq's own endpoint exactly
+  // as before, so this changes nothing by itself. Set, the same OpenAI-shaped request goes to a
+  // local router instead (`LLM_BASE_URL`, e.g. 9router-go on 127.0.0.1:20130) which holds the real
+  // provider keys, forwards the turn, and can move to another provider when one refuses it.
+  //
+  // The router's model name carries a provider prefix — `gq/openai/gpt-oss-20b` — and
+  // `groqReasoningEffort` still reads it correctly, because it matches on `gpt-oss` anywhere in
+  // the string rather than on where the string starts.
+  const llmBaseUrl = optionalEnv("LLM_BASE_URL", "");
+  const llmModel = optionalEnv("LLM_MODEL", groqModel);
+  const llm =
+    llmBaseUrl.length > 0
+      ? new LLM({
+          apiKey: requireEnv("LLM_API_KEY"),
+          model: llmModel,
+          baseURL: llmBaseUrl,
+          reasoningEffort: groqReasoningEffort(llmModel),
+        })
+      : LLM.withGroq(groqOptions);
 
   const session = new voice.AgentSession({
     // Pretrained in `prewarm`; loaded here only if that did not happen.

@@ -103,6 +103,9 @@ export const ENV_GROUPS: readonly EnvGroup[] = [
     keys: [
       { key: "GROQ_API_KEY", label: "API key", where: "Console -> API Keys -> Create key (starts with gsk_)", secret: true },
       { key: "GROQ_MODEL", label: "Chat model", where: "already set", secret: false, example: "openai/gpt-oss-20b", optional: true },
+      { key: "LLM_BASE_URL", label: "Router URL (optional)", where: "9router-go dashboard, or leave blank", secret: false, example: "http://127.0.0.1:20130/v1", optional: true },
+      { key: "LLM_API_KEY", label: "Router key (optional)", where: "9router-go -> API Keys", secret: true, optional: true },
+      { key: "LLM_MODEL", label: "Router model (optional)", where: "provider-prefixed name", secret: false, example: "gq/openai/gpt-oss-20b", optional: true },
     ],
   },
   {

@@ -100,7 +100,7 @@ From the architecture discussion:
 | Voice agent | **LiveKit Agents (TypeScript)** | Lets web + agent share the same domain code. |
 | Real-time audio | **LiveKit Cloud** (WebRTC) | Handles echo cancelling, turn detection, barge-in and bad mobile networks — all the hard parts. |
 | STT (ears) | **Deepgram** | Fast streaming, $200 free credit. |
-| LLM (brain) | **Groq** | Very fast first token, free tier. |
+| LLM (brain) | **Groq** | Very fast first token, free tier. An optional local router (9router-go) can sit in front of it without changing the turn — see `docs/run-on-windows.md`. |
 | TTS (voice) | **Azure Speech F0** | 500k chars/month free, 400+ voices, 50+ emotion styles. |
 | Database | **Supabase Postgres** | Relational + `pgvector` + Auth + Storage, one free dashboard. |
 | ORM | **Drizzle** | Typed, light, SQL-first, clean migrations. |
@@ -328,8 +328,8 @@ Redis and cost **0 Azure characters**.
 ## 9. The voice loop (one turn, end to end)
 
 ```
-you speak ─► Deepgram (STT) ─► Groq (LLM) ─► Azure (TTS) ─► you hear it
-   ~0 ms        ~150–300 ms      ~200–500 ms    ~150–250 ms   ≈ 0.8–1.5 s total
+you speak ─► Deepgram (STT) ─► the brain (LLM) ─► Azure (TTS) ─► you hear it
+   ~0 ms        ~150–300 ms        ~200–500 ms     ~150–250 ms   ≈ 0.8–1.5 s total
                         ▲
             MemoryCard + character prompt + feedback style
 ```
@@ -340,16 +340,28 @@ you speak ─► Deepgram (STT) ─► Groq (LLM) ─► Azure (TTS) ─► you 
 4. `BuildPrompt` (core) puts together the character's personality, the memory card and the
    feedback style — **and the API does this, once, before the call**. The result goes into the
    session brief in Redis. The agent reads it; it does not rebuild it.
-5. Groq answers — **short**, like a phone call — and starts with a **mood tag** (`[[cheerful]]`).
+5. The brain answers — **short**, like a phone call — and starts with a **mood tag** (`[[cheerful]]`).
+   By default the brain is Groq itself. Set `LLM_BASE_URL` and the same OpenAI-shaped request goes
+   to a local router first (9router-go, see `docs/run-on-windows.md`), which holds the provider keys
+   and can move to another provider when one refuses a turn. Nothing else about the turn changes:
+   the router is a signpost, not a second brain, and it does not make a provider's ceiling larger.
 6. `MoodTagStripper` (core) takes the tag off the live token stream. It is the *first* thing in
    the reply, so it is also the thing most likely to be split across two tokens. A tag the model
    adds *later* — it repeats one, or changes its mind in the middle of a sentence — comes off
    too, and the voice follows the change: a tag read out loud is the one thing this must never
    allow.
-7. `VoiceStyle` (core) maps the mood to an **Azure `mstts:express-as` style**, and Azure speaks
+7. `DashRewriter` (core) makes the reply's punctuation safe to speak. The prompt asks for no dash
+   between the parts of a sentence, and a 20B model keeps that rule most of the time; this is what
+   makes it true rather than merely requested. An em dash, an en dash or a hyphen with space on
+   both sides becomes a comma, a hyphen inside a word (`well-known`) is left alone, and the tail of
+   the text is held back while it is still ambiguous — `came home -` and ` tired` can arrive as two
+   tokens, and it is the space that decides which one that hyphen was. Verified the hard way: asked
+   outright for a dash, the model wrote `early—my day … forever - and`, and the voice was handed
+   `early, my day … forever, and`.
+8. `VoiceStyle` (core) maps the mood to an **Azure `mstts:express-as` style**, and Azure speaks
    the sentence with that emotion. If the voice does not have that style, Azure says no and we
    say the same line plainly rather than dropping it.
-8. **Barge-in:** if you start talking, the agent stops instantly (LiveKit handles it).
+9. **Barge-in:** if you start talking, the agent stops instantly (LiveKit handles it).
 
 ### Watching the call: captions, and the quiet-call hang-up
 
@@ -411,7 +423,7 @@ We never reload the whole old transcript → it stays fast and free.
 | Cache | Upstash Redis | 10k commands/day |
 | Audio rooms | LiveKit Cloud | 1,000 min/month |
 | STT | Deepgram | $200 credit |
-| LLM | Groq | free tier |
+| LLM | Groq | free tier (a router in front changes nothing here) |
 | Voice | Azure F0 | 500k chars/month |
 
 `BudgetGuard` runs **before** a call starts and again before TTS: it checks remaining
@@ -480,6 +492,11 @@ DEEPGRAM_API_KEY
 DEEPGRAM_MODEL                   # optional, default "nova-3"
 GROQ_API_KEY
 GROQ_MODEL                       # optional, default "openai/gpt-oss-20b" (or "-120b")
+
+# the brain, via a local router (all three optional; leave LLM_BASE_URL blank to talk to Groq direct)
+LLM_BASE_URL                     # e.g. "http://127.0.0.1:20130/v1" (9router-go)
+LLM_API_KEY                      # the router's own client key, NOT a provider key
+LLM_MODEL                        # optional, provider-prefixed: "gq/openai/gpt-oss-20b"
 AZURE_SPEECH_KEY
 AZURE_SPEECH_REGION
 AZURE_VOICE                      # optional fallback voice

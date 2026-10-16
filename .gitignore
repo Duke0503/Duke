@@ -30,6 +30,10 @@ pnpm-debug.log*
 # tests
 coverage/
 
+# local tooling: 9router-go gateway (cloned source + release binary + sqlite data).
+# Not Duke source, and it carries provider credentials in its own DB.
+.9router-go/
+
 # agent tooling (installed skills, not project source)
 .claude/
 .agents/
