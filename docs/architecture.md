@@ -342,7 +342,10 @@ you speak ─► Deepgram (STT) ─► Groq (LLM) ─► Azure (TTS) ─► you 
    session brief in Redis. The agent reads it; it does not rebuild it.
 5. Groq answers — **short**, like a phone call — and starts with a **mood tag** (`[[cheerful]]`).
 6. `MoodTagStripper` (core) takes the tag off the live token stream. It is the *first* thing in
-   the reply, so it is also the thing most likely to be split across two tokens.
+   the reply, so it is also the thing most likely to be split across two tokens. A tag the model
+   adds *later* — it repeats one, or changes its mind in the middle of a sentence — comes off
+   too, and the voice follows the change: a tag read out loud is the one thing this must never
+   allow.
 7. `VoiceStyle` (core) maps the mood to an **Azure `mstts:express-as` style**, and Azure speaks
    the sentence with that emotion. If the voice does not have that style, Azure says no and we
    say the same line plainly rather than dropping it.

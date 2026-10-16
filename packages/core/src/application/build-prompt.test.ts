@@ -63,8 +63,40 @@ describe("buildSystemPrompt", () => {
     }
   });
 
-  it("keeps native phrases inside the learner's reach", () => {
-    expect(buildSystemPrompt({ character: character() })).toMatch(/no rare idioms/i);
+  it("bans the punctuation nobody says out loud", () => {
+    const prompt = buildSystemPrompt({ character: character() });
+    expect(prompt).toMatch(/no em dashes, no semicolons, no brackets/);
+  });
+
+  it("asks for real idioms, one at a time, and only the everyday kind", () => {
+    const prompt = buildSystemPrompt({ character: character() });
+    expect(prompt).toMatch(/real idiom/);
+    expect(prompt).toMatch(/One in a reply at/);
+    expect(prompt).toMatch(/will hear again this week/);
+    expect(prompt).toMatch(/never a rare or fancy one/);
+  });
+
+  it("keeps idioms out of the way of the conversation", () => {
+    expect(buildSystemPrompt({ character: character() })).toMatch(/Do not stop/);
+    expect(buildSystemPrompt({ character: character() })).toMatch(/notes catch those/);
+  });
+
+  it("asks for the filler words that make speech sound spoken", () => {
+    const prompt = buildSystemPrompt({ character: character() });
+    expect(prompt).toMatch(/Fillers/);
+    expect(prompt).toContain('"you know"');
+    expect(prompt).toContain('"I mean"');
+    expect(prompt).toContain('"honestly"');
+  });
+
+  it("puts a lid on the fillers, and bans the stutters", () => {
+    const prompt = buildSystemPrompt({ character: character() });
+    expect(prompt).toMatch(/one or two a reply at most/);
+    expect(prompt).toMatch(/No "um" or "uh"/);
+  });
+
+  it("lets the role and personality decide how many fillers and idioms fit", () => {
+    expect(buildSystemPrompt({ character: character() })).toMatch(/spare with both/);
   });
 
   it("hands the tone to the role and personality instead of fixing one voice for everyone", () => {
@@ -153,6 +185,11 @@ describe("buildSummaryPrompt", () => {
     expect(prompt).toContain("→");
     expect(prompt).toMatch(/nothing else/);
     expect(prompt).toContain("USER: hi");
+  });
+
+  it("asks the notes to catch an idiom I met on the call", () => {
+    const prompt = buildSummaryPrompt({ characterName: "Leo", turns: [turn("user", "hi", 0)] });
+    expect(prompt).toMatch(/everyday idiom or set phrase/);
   });
 });
 

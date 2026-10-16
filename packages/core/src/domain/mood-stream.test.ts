@@ -57,12 +57,40 @@ describe("MoodTagStripper", () => {
     expect(text).toBe("Ha!");
   });
 
-  it("stops looking once the first word is out", () => {
-    // A tag later in the sentence is not a tag — it is the character saying it.
-    const { text, mood } = stream(["Sure. [[sad]]"]);
+  it("removes a later tag, and lets the voice follow the change of heart", () => {
+    // The model repeats the tag mid-reply, or changes its mind in the middle of a sentence.
+    // That is an instruction to the voice, never speech: a character reading out
+    // "bracket bracket friendly" is the worst thing this class could let through.
+    const { text, mood } = stream(["[[friendly]] Hmm, I see. [[sad]] Right."]);
 
-    expect(mood).toBeNull();
-    expect(text).toBe("Sure. [[sad]]");
+    expect(text).toBe("Hmm, I see. Right.");
+    expect(mood).toBe("sad");
+  });
+
+  it("removes a later tag that arrives split across chunks", () => {
+    const { text, mood } = stream(["Hi. ", "[[sa", "d]] Bye."]);
+
+    expect(text).toBe("Hi. Bye.");
+    expect(mood).toBe("sad");
+  });
+
+  it("removes a later tag even when the reply never opened with one", () => {
+    const { text, mood } = stream(["Okay. ", "[[calm]] Breathe."]);
+
+    expect(text).toBe("Okay. Breathe.");
+    expect(mood).toBe("calm");
+  });
+
+  it("leaves a bracket that is not a tag alone", () => {
+    expect(stream(["Hi [there] you."])).toEqual({ text: "Hi [there] you.", mood: null });
+  });
+
+  it("holds a bracket at the end of a chunk until the next one arrives", () => {
+    expect(stream(["Hi [", "x"])).toEqual({ text: "Hi [x", mood: null });
+  });
+
+  it("never drops text, even when the reply ends inside a bracket", () => {
+    expect(stream(["Wait [["])).toEqual({ text: "Wait [[", mood: null });
   });
 
   it("gives up on a runaway 'tag' so the first word is not delayed forever", () => {

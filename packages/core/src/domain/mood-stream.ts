@@ -11,6 +11,9 @@
  *
  *   - before the tag: hold text back, because it might be a tag
  *   - the moment the tag (or the first real word) is known: let everything through
+ *   - after that: a tag can still turn up. The model repeats one, or changes its mind in the
+ *     middle of a sentence, and a tag read out loud ("bracket bracket friendly") is worse than
+ *     any tag we could be fooled into dropping. So they come off here too.
  *
  * The caller feeds it every chunk and passes on what comes back. Nothing is lost: whatever is
  * still held when the reply ends comes out of `flush`.
@@ -19,16 +22,16 @@
 import { isMood, type Mood } from "./mood";
 
 export interface MoodStreamChunk {
-  /** The text to speak, with any leading mood tag removed. Often `""`. */
+  /** The text to speak, with any mood tag removed. Often `""`. */
   readonly text: string;
-  /** Set once, on the chunk that carried the tag. */
+  /** Set on the chunk that carried a tag, the leading one or a later one. */
   readonly mood: Mood | null;
 }
 
 const TAG_OPEN = "[[";
 
 /**
- * How long we are willing to hold the start of a reply while looking for a tag.
+ * How long we are willing to hold text back while looking for a tag.
  *
  * The longest real tag — `[[sympathetic]]` — is 16 characters. Past this the "tag" is
  * something else, and holding the text back would delay the character's first word.
@@ -36,6 +39,9 @@ const TAG_OPEN = "[[";
 const MAX_TAG_CHARS = 24;
 
 const TAG = /^\[\[([a-zA-Z]+)\]\]\s*/;
+
+/** The same shape, but anywhere in the text rather than only at the start. */
+const TAG_ANYWHERE = /\[\[([a-zA-Z]+)\]\]\s*/g;
 
 export class MoodTagStripper {
   /** `leading` = we are still behind the tag; `open` = the tag is settled, pass text through. */
@@ -58,7 +64,7 @@ export class MoodTagStripper {
     if (this.state === "open") {
       const text = this.skipSpace ? chunk.replace(/^\s+/, "") : chunk;
       if (text.length > 0) this.skipSpace = false;
-      return { text, mood: null };
+      return this.inside(text);
     }
 
     this.buffer += chunk;
@@ -92,14 +98,72 @@ export class MoodTagStripper {
 
   /** Whatever is still held when the reply ends. Never drops text. */
   flush(): string {
-    return this.release(this.buffer).text;
+    const rest = this.clean(this.buffer).text;
+    this.buffer = "";
+    this.state = "open";
+    this.skipSpace = false;
+    return rest;
+  }
+
+  /**
+   * The reply is under way. Everything after the leading tag passes through here, so this is
+   * where a tag the model adds later comes off. The mood of the last one is the mood to speak:
+   * a model only repeats the tag when it wants the emotion to change, and `setMood` is read
+   * sentence by sentence, so following it costs nothing.
+   */
+  private inside(text: string): MoodStreamChunk {
+    const { text: cleaned, mood } = this.clean(this.buffer + text);
+    this.buffer = "";
+    if (mood !== null) this.mood = mood;
+
+    // A tag can straddle two chunks here as well: hold its start back, but not for long.
+    const held = pendingTagLength(cleaned);
+    if (held === 0) return { text: cleaned, mood };
+
+    this.buffer = cleaned.slice(cleaned.length - held);
+    return { text: cleaned.slice(0, cleaned.length - held), mood };
+  }
+
+  /** The text with every complete tag taken out, and the mood of the last one it carried. */
+  private clean(text: string): { text: string; mood: Mood | null } {
+    let mood: Mood | null = null;
+    let cleaned = "";
+    let cursor = 0;
+
+    for (const match of text.matchAll(TAG_ANYWHERE)) {
+      const start = match.index ?? 0;
+      cleaned += text.slice(cursor, start);
+      cursor = start + match[0].length;
+      const word = (match[1] ?? "").toLowerCase();
+      if (isMood(word)) mood = word;
+    }
+
+    return { text: cleaned + text.slice(cursor), mood };
   }
 
   private release(text: string): MoodStreamChunk {
-    this.buffer = "";
     this.state = "open";
+    this.buffer = "";
     // If the tag was all we had, the next chunk may start with the space that followed it.
     this.skipSpace = text.length === 0;
-    return { text, mood: this.mood };
+    const out = this.inside(text);
+    // The leading mood was recorded before we got here; a second tag in the same chunk wins.
+    return { text: out.text, mood: out.mood ?? this.mood };
   }
+}
+
+/**
+ * How many characters at the end of `text` might be the start of a tag, and so should wait for
+ * the next chunk. `0` means the whole text is safe to speak.
+ */
+function pendingTagLength(text: string): number {
+  const open = text.lastIndexOf(TAG_OPEN);
+
+  if (open === -1) return text.endsWith("[") ? 1 : 0;
+
+  // An opening that already closed is not a tag we are waiting for; one that never closes is
+  // worth waiting for only while it could still turn into a real tag.
+  const tail = text.slice(open);
+  if (tail.includes("]]")) return 0;
+  return tail.length <= MAX_TAG_CHARS ? tail.length : 0;
 }
