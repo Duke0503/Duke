@@ -100,7 +100,7 @@ From the architecture discussion:
 | Voice agent | **LiveKit Agents (TypeScript)** | Lets web + agent share the same domain code. |
 | Real-time audio | **LiveKit Cloud** (WebRTC) | Handles echo cancelling, turn detection, barge-in and bad mobile networks — all the hard parts. |
 | STT (ears) | **Deepgram** | Fast streaming, $200 free credit. |
-| LLM (brain) | **Groq** | Very fast first token, free tier. An optional local router (9router-go) can sit in front of it without changing the turn — see `docs/run-on-windows.md`. |
+| LLM (brain) | **a local router** (9router-go) | Holds the provider keys and swaps providers in one place, so the brain is a line in `.env` rather than a code change. Antigravity sits in front of it now, with Groq still configured behind. See `docs/run-on-windows.md` §10. |
 | TTS (voice) | **Azure Speech F0** | 500k chars/month free, 400+ voices, 50+ emotion styles. |
 | Database | **Supabase Postgres** | Relational + `pgvector` + Auth + Storage, one free dashboard. |
 | ORM | **Drizzle** | Typed, light, SQL-first, clean migrations. |
@@ -341,10 +341,11 @@ you speak ─► Deepgram (STT) ─► the brain (LLM) ─► Azure (TTS) ─►
    feedback style — **and the API does this, once, before the call**. The result goes into the
    session brief in Redis. The agent reads it; it does not rebuild it.
 5. The brain answers — **short**, like a phone call — and starts with a **mood tag** (`[[cheerful]]`).
-   By default the brain is Groq itself. Set `LLM_BASE_URL` and the same OpenAI-shaped request goes
-   to a local router first (9router-go, see `docs/run-on-windows.md`), which holds the provider keys
-   and can move to another provider when one refuses a turn. Nothing else about the turn changes:
-   the router is a signpost, not a second brain, and it does not make a provider's ceiling larger.
+   The request is an ordinary OpenAI-shaped one. Set `LLM_BASE_URL` and it goes to a local router
+   first (9router-go, see `docs/run-on-windows.md` §10), which holds the provider keys and can move
+   to another provider when one refuses a turn. The router is a signpost, not a second brain: it
+   does not make a provider's ceiling larger, it only makes changing provider one line. Blank
+   `LLM_BASE_URL` is a supported setting and talks to Groq directly.
 6. `MoodTagStripper` (core) takes the tag off the live token stream. It is the *first* thing in
    the reply, so it is also the thing most likely to be split across two tokens. A tag the model
    adds *later* — it repeats one, or changes its mind in the middle of a sentence — comes off
@@ -423,7 +424,7 @@ We never reload the whole old transcript → it stays fast and free.
 | Cache | Upstash Redis | 10k commands/day |
 | Audio rooms | LiveKit Cloud | 1,000 min/month |
 | STT | Deepgram | $200 credit |
-| LLM | Groq | free tier (a router in front changes nothing here) |
+| LLM | Antigravity, via 9router-go | $0, but a per-account quota rather than a published free tier — Groq stays configured as the fallback |
 | Voice | Azure F0 | 500k chars/month |
 
 `BudgetGuard` runs **before** a call starts and again before TTS: it checks remaining
@@ -496,7 +497,7 @@ GROQ_MODEL                       # optional, default "openai/gpt-oss-20b" (or "-
 # the brain, via a local router (all three optional; leave LLM_BASE_URL blank to talk to Groq direct)
 LLM_BASE_URL                     # e.g. "http://127.0.0.1:20130/v1" (9router-go)
 LLM_API_KEY                      # the router's own client key, NOT a provider key
-LLM_MODEL                        # optional, provider-prefixed: "gq/openai/gpt-oss-20b"
+LLM_MODEL                        # optional, provider-prefixed: "ag/gemini-2.5-flash" or "gq/openai/gpt-oss-20b"
 AZURE_SPEECH_KEY
 AZURE_SPEECH_REGION
 AZURE_VOICE                      # optional fallback voice
