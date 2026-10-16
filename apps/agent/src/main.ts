@@ -47,9 +47,24 @@ import type { Logger } from "@duke/shared";
 import { AzureTts } from "./azure-tts";
 import { readBrief, sessionIdFromRoom } from "./brief";
 import { DukeAgent } from "./duke-agent";
+import { DEFAULT_CALL_IDLE_SECONDS, IdleWatch, idleSecondsFrom } from "./idle-watch";
 import { TurnRecorder } from "./recorder";
 
 const DEFAULT_LOG_RETENTION_DAYS = 14;
+
+/**
+ * What the character says before the countdown hangs up.
+ *
+ * An instruction rather than a script, so the line goes through the same model and the same
+ * personality as everything else and sounds like the character instead of like a phone system.
+ * It is told not to ask a question on purpose: the call is ending, and a question nobody will
+ * answer is only a reason to stay open and keep spending.
+ */
+const IDLE_GOODBYE_INSTRUCTION = [
+  "Nobody has said anything for a while, so you are hanging up the call now.",
+  "Say one short, natural goodbye, in character, and tell them they can call back any time.",
+  "Do not ask a question.",
+].join(" ");
 
 /**
  * `withGroq` spreads what it is given straight into `new LLM(...)`, where `reasoningEffort` is a
@@ -83,7 +98,12 @@ export default defineAgent<ProcessData>({
 
 /** Everything one call needs, torn down together at the end. */
 async function runCall(ctx: JobContext<ProcessData>): Promise<void> {
-  const log = createLogger({ service: "duke-agent" }).child({ room: ctx.room.name });
+  // `ctx.job.room` is the room this job was called into. Not `ctx.room.name`: that Room is a bare
+  // object until `ctx.connect()` fills it in from the server's answer, so before connecting it
+  // reads as an empty string.
+  const log = createLogger({ service: "duke-agent" }).child({
+    room: ctx.job.room?.name ?? ctx.room.name,
+  });
 
   const adapters = createAdapters({
     onError: (error) => log.warn({ err: serializeError(error) }, "provider complained"),
@@ -103,10 +123,14 @@ async function answerCall(
   adapters: Adapters,
   log: Logger,
 ): Promise<void> {
-  const roomName = ctx.room.name ?? "";
+  // The job message carries the room's name, and it has to be read from there. `ctx.room` is a
+  // bare Room at this point — its `name` is filled in by the server once `ctx.connect()` runs
+  // further down — so reading it here gives an empty string, `sessionIdFromRoom` says "not ours",
+  // and a perfectly good call gets refused as if a stranger had dialled in.
+  const roomName = ctx.job.room?.name ?? ctx.room.name ?? "";
   const sessionId = sessionIdFromRoom(roomName);
   if (sessionId === null) {
-    log.error({ roomName }, "room is not a Duke room; refusing the job");
+    log.error({ roomName, jobId: ctx.job.id }, "room is not a Duke room; refusing the job");
     return;
   }
 
@@ -201,8 +225,52 @@ async function answerCall(
     log.error({ err: serializeError(event.error) }, "the voice loop hit an error");
   });
 
+  // An open room spends minutes whether or not anyone is talking, and the learner's month is
+  // small. This is what gives up on their behalf: once the character has stopped and is waiting
+  // for an answer, the countdown runs, and anyone speaking resets it. `CALL_IDLE_SECONDS` sets
+  // the wait (`0` turns it off); a typo there cannot turn into an instant hang-up — see
+  // `idleSecondsFrom`.
+  const idleSeconds = idleSecondsFrom(
+    optionalEnv("CALL_IDLE_SECONDS", String(DEFAULT_CALL_IDLE_SECONDS)),
+  );
+
+  const idle = new IdleWatch(idleSeconds, {
+    onIdle: () => {
+      log.info({ sessionId, idleSeconds }, "nobody answered; saying goodbye and hanging up");
+
+      // Not awaited: this runs inside a timer callback, and the call must not be kept open by the
+      // goodbye itself. `ctx.shutdown` is the part that actually hangs up — closing the session
+      // alone leaves the agent sitting in the room, so the phone would hear the goodbye and then
+      // keep spending minutes on a line nobody is on. Shutting the job down runs the callbacks
+      // below (which flush the transcript) and leaves the room, which is what the call screen
+      // sees as the friend hanging up.
+      void (async () => {
+        try {
+          await session.generateReply({ instructions: IDLE_GOODBYE_INSTRUCTION }).waitForPlayout();
+        } catch (error) {
+          // The line is a courtesy. Hanging up still has to happen if the model refuses to speak.
+          log.warn({ err: serializeError(error) }, "the goodbye line could not be said");
+        }
+
+        ctx.shutdown("idle");
+      })();
+    },
+  });
+
+  session.on(voice.AgentSessionEventTypes.AgentStateChanged, (event) => {
+    // "listening" is the character finished and waiting. Anything else means it is still
+    // thinking or talking, and a countdown then would be counting the character's own turn.
+    if (event.newState === "listening") idle.arm();
+    else idle.cancel();
+  });
+
+  session.on(voice.AgentSessionEventTypes.UserStateChanged, (event) => {
+    if (event.newState === "speaking") idle.cancel();
+  });
+
   ctx.addShutdownCallback(async (): Promise<void> => {
     log.info({ sessionId }, "call ended");
+    idle.cancel();
     await session.close();
     await recorder.flush();
     await adapters.close();

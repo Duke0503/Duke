@@ -14,6 +14,7 @@ export * from "./application/ports";
 export * from "./application/validated";
 export * from "./application/keys";
 export * from "./application/build-prompt";
+export * from "./application/live-captions";
 export * from "./application/create-character";
 export * from "./application/memory";
 export * from "./application/start-call";

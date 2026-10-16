@@ -348,6 +348,26 @@ you speak ─► Deepgram (STT) ─► Groq (LLM) ─► Azure (TTS) ─► you 
    say the same line plainly rather than dropping it.
 8. **Barge-in:** if you start talking, the agent stops instantly (LiveKit handles it).
 
+### Watching the call: captions, and the quiet-call hang-up
+
+Two things on the call screen are not part of the audio loop, and both come from LiveKit itself
+rather than from Duke's own plumbing:
+
+| | How it works | What it costs |
+|---|---|---|
+| **Live captions** | The agent relays both sides as `lk.transcription` text streams, word by word: Deepgram's interim guesses for you, and the reply as it streams out of the model. `RoomEvent.TranscriptionReceived` hands them to the screen with the speaker already worked out, and `mergeCaptions` (`@duke/core`) decides where each line goes — a line that is still being spoken is replaced in place, never appended twice. | text over the connection that is already open: nothing measurable |
+| **Quiet-call hang-up** | `IdleWatch` (`apps/agent`) starts counting the moment the character stops speaking and is waiting for an answer; anyone speaking cancels it. `CALL_IDLE_SECONDS` (60 by default) later the character says one short goodbye, and `ctx.shutdown()` runs the shutdown callbacks and leaves the room. That is what stops a forgotten call from spending the month. | one short reply |
+
+`interimResults: true` on the Deepgram plugin (with `noDelay`) is what puts your own words on the
+glass while you are still talking. Without it, your line would only appear once you had finished
+it — which is exactly the delay people notice.
+
+> **Trap worth knowing:** the agent must not read `ctx.room.name` before `ctx.connect()` has run.
+> The job hands the agent a bare `Room`, and its name only arrives with the server's answer, so
+> reading it early gives an empty string — and the "not a Duke room" guard then refuses a perfectly
+> good call, which looks from the outside like the friend simply never picks up. The name is on the
+> job: `ctx.job.room.name`.
+
 > If the AI ever feels slow, the first thing to tune is the **VAD silence delay** and
 > the **LLM reply length** — not the infrastructure.
 
@@ -441,6 +461,7 @@ LOG_RETENTION_DAYS
 API_PORT
 WEB_ORIGIN
 API_ORIGIN                       # optional; web -> api behind a proxy
+CALL_IDLE_SECONDS                # optional, default 60; 0 turns the quiet-call hang-up off
 
 # data
 DATABASE_URL                     # Postgres (Supabase)

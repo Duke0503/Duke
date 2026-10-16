@@ -20,7 +20,7 @@
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { DEFAULT_BUDGET_LIMITS } from "@duke/core";
+import { DEFAULT_BUDGET_LIMITS, mergeCaptions, type CaptionLine } from "@duke/core";
 import { Room, RoomEvent, Track, type RemoteTrack } from "livekit-client";
 import { PhoneOffIcon, MicIcon, MicOffIcon, ArrowRightIcon, SparklesIcon } from "lucide-react";
 import { BareScreen } from "@/components/shell/app-shell";
@@ -77,8 +77,12 @@ function CallScreen() {
   const [result, setResult] = useState<EndedCall | null>(null);
   const [ending, setEnding] = useState(false);
   const [capped, setCapped] = useState(false);
+  const [captions, setCaptions] = useState<CaptionLine[]>([]);
+  const [captionsOn, setCaptionsOn] = useState(true);
+  const [friendLeft, setFriendLeft] = useState(false);
 
   const roomRef = useRef<Room | null>(null);
+  const captionsRef = useRef<HTMLDivElement | null>(null);
   const secondsRef = useRef(0);
   const phaseRef = useRef<Phase>("starting");
   phaseRef.current = phase;
@@ -139,6 +143,27 @@ function CallScreen() {
       if (phaseRef.current === "live") setPhase("disconnected");
     });
 
+    // Both sides of the conversation arrive here while the words are still being spoken:
+    // Deepgram's running guess at what the learner is saying, and the character's reply as it
+    // streams out of the model. LiveKit relays them over the same connection as the audio, and
+    // it has already worked out which participant a line belongs to, so this screen only has to
+    // decide where to put it. The merging rule lives in `@duke/core`, tested there.
+    room.on(RoomEvent.TranscriptionReceived, (segments, participant) => {
+      setCaptions((current) =>
+        mergeCaptions(current, segments, participant?.isLocal === true ? "learner" : "character"),
+      );
+    });
+
+    // The room holds exactly one friend, so no remote participants left means the character hung
+    // up — the idle countdown, or the agent going away with it. The call is over either way, and
+    // sitting alone in an empty room would keep the timer, and the month, running.
+    room.on(RoomEvent.ParticipantDisconnected, () => {
+      if (room.remoteParticipants.size > 0) return;
+      if (phaseRef.current !== "live") return;
+      setFriendLeft(true);
+      setPhase("disconnected");
+    });
+
     try {
       await room.connect(started.url, started.token);
       await room.localParticipant.setMicrophoneEnabled(true);
@@ -185,6 +210,15 @@ function CallScreen() {
     window.addEventListener("pagehide", onHide);
     return () => window.removeEventListener("pagehide", onHide);
   }, [call]);
+
+  // ------------------------------------------------------------------ captions stay in view
+  // The list is capped in length, so the newest line is the one worth reading. A caption you
+  // have to scroll to is not a caption.
+  useEffect(() => {
+    const box = captionsRef.current;
+    if (box === null) return;
+    box.scrollTop = box.scrollHeight;
+  }, [captions]);
 
   // ------------------------------------------------------------------ actions
   const finish = useCallback(async () => {
@@ -280,7 +314,9 @@ function CallScreen() {
         : phase === "starting"
           ? "Starting"
           : phase === "disconnected"
-            ? "Signal lost"
+            ? friendLeft
+              ? "Call ended"
+              : "Signal lost"
             : "Ended";
   const memory = call?.memoryCard;
   const remembered =
@@ -355,6 +391,46 @@ function CallScreen() {
           ) : null}
         </div>
 
+        {/* live captions — both voices, as they are spoken */}
+        {captionsOn ? (
+          <div
+            ref={captionsRef}
+            className="border-border bg-card/60 mb-3 max-h-[22vh] min-h-[76px] overflow-y-auto rounded-xl border px-3.5 py-3"
+          >
+            {captions.length === 0 ? (
+              <p className="text-muted-foreground font-mono text-[10px] tracking-[0.14em] uppercase">
+                {live ? "// both voices show up here as you talk" : "// captions appear once you talk"}
+              </p>
+            ) : (
+              <ul className="flex flex-col gap-2">
+                {captions.map((line) => (
+                  <li key={line.id} className="flex gap-2.5">
+                    <span
+                      className={
+                        line.speaker === "learner"
+                          ? "text-muted-foreground w-16 shrink-0 truncate pt-[3px] font-mono text-[10px] tracking-[0.12em] uppercase"
+                          : "text-primary w-16 shrink-0 truncate pt-[3px] font-mono text-[10px] tracking-[0.12em] uppercase"
+                      }
+                    >
+                      {line.speaker === "learner" ? "you" : (call?.characterName ?? "them")}
+                    </span>
+                    {/* Still being spoken: dimmer, so it reads as not-yet-settled. */}
+                    <span
+                      className={
+                        line.final
+                          ? "text-sm leading-snug"
+                          : "text-muted-foreground text-sm leading-snug"
+                      }
+                    >
+                      {line.text}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ) : null}
+
         {/* controls */}
         <div className="flex items-center justify-center gap-4">
           <button
@@ -365,6 +441,20 @@ function CallScreen() {
             className="border-border bg-card text-foreground hover:border-primary/40 grid size-14 place-items-center rounded-full border transition-colors disabled:opacity-40"
           >
             {muted ? <MicOffIcon className="size-5" /> : <MicIcon className="size-5" />}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setCaptionsOn((on) => !on)}
+            aria-pressed={captionsOn}
+            aria-label={captionsOn ? "Hide captions" : "Show captions"}
+            className={
+              captionsOn
+                ? "border-primary/40 bg-card text-primary grid size-14 place-items-center rounded-full border transition-colors"
+                : "border-border bg-card text-muted-foreground hover:border-primary/40 grid size-14 place-items-center rounded-full border transition-colors"
+            }
+          >
+            <span className="font-mono text-[11px] tracking-[0.1em]">CC</span>
           </button>
 
           <button
@@ -404,6 +494,12 @@ function CallScreen() {
               <p className="text-muted-foreground mt-2 text-sm leading-relaxed">
                 This call reached its {DEFAULT_BUDGET_LIMITS.callMinutes}-minute limit and ended
                 on its own. That keeps the month’s free minutes for the next call.
+              </p>
+            ) : null}
+            {friendLeft && !capped ? (
+              <p className="text-muted-foreground mt-2 text-sm leading-relaxed">
+                {call?.characterName ?? "Your friend"} hung up because the call had gone quiet.
+                That is deliberate: a line nobody is talking on still spends the month.
               </p>
             ) : null}
             <SheetHeading className="mt-2">
