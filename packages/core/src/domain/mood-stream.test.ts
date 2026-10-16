@@ -74,6 +74,16 @@ describe("MoodTagStripper", () => {
     expect(mood).toBe("sad");
   });
 
+  it("removes the repeat the model puts on its own line", () => {
+    // The shape the live model really streamed: "What went wrong?[[teasing]]  \nSounds like a
+    // story." The tag and the whitespace after it go. The two sentences end up sharing their
+    // space, which is cosmetic — the words are right, and nothing is read out as brackets.
+    const { text, mood } = stream(["What went wrong?[[teasing]]  \nSounds like a story."]);
+
+    expect(text).toBe("What went wrong?Sounds like a story.");
+    expect(mood).toBe("teasing");
+  });
+
   it("removes a later tag even when the reply never opened with one", () => {
     const { text, mood } = stream(["Okay. ", "[[calm]] Breathe."]);
 

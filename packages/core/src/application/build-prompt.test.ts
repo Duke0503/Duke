@@ -65,7 +65,9 @@ describe("buildSystemPrompt", () => {
 
   it("bans the punctuation nobody says out loud", () => {
     const prompt = buildSystemPrompt({ character: character() });
-    expect(prompt).toMatch(/no em dashes, no semicolons, no brackets/);
+    expect(prompt).toMatch(/commas and full stops only/);
+    expect(prompt).toMatch(/No dashes between the parts of a sentence, long or short/);
+    expect(prompt).toMatch(/No semicolons, no brackets/);
   });
 
   it("asks for real idioms, one at a time, and only the everyday kind", () => {
