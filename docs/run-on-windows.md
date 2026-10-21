@@ -18,11 +18,13 @@ api    99 MB      agent  134 MB      web  78 MB      =  310 MB
 | `api` | NestJS. Characters, sessions, LiveKit tokens. | `API_PORT` (4478) | `127.0.0.1` only |
 | `agent` | the voice worker | a health endpoint on `8081`, loopback only | nothing outside this machine |
 | `web` | the screens you open | `WEB_PORT` (4477) | `127.0.0.1` only, plus the tunnel |
-| `router` | optional. 9router-go, the brain signpost. Only runs when `LLM_BASE_URL` is set — §10 | `20130` | `127.0.0.1` only |
+| `router` | optional, and off by default now. 9router-go **on this machine** — only when `LLM_BASE_URL` points back here — §10 | `20130` | `127.0.0.1` only |
 
-Three processes and no Docker. A fourth, the optional router, joins them when `LLM_BASE_URL` is
-set. The ports are read from `.env`, never hardcoded, so the launcher and the tunnel can never
-disagree about where the web app is.
+Three processes and no Docker. A fourth, the router, joins them **only when `LLM_BASE_URL` points
+at this machine**. Point it at a hosted router, or leave it blank to talk to Groq directly, and the
+local one is never started: it is not part of a working call, so starting it would mean a second
+router holding a second copy of the provider keys for nobody. The ports are read from `.env`, never
+hardcoded, so the launcher and the tunnel can never disagree about where the web app is.
 
 Nothing here is reachable from your network. The web app is loopback-only, and so is the API —
 the launcher starts it with `API_HOST=127.0.0.1`, so the port that holds the database does not
@@ -48,8 +50,12 @@ powershell -ExecutionPolicy Bypass -File scripts\run-local.ps1 restart
   web      up    pid 31416   78 MB
   api      http://127.0.0.1:4478/api/health  ->  HTTP 200
   web      http://127.0.0.1:4477  ->  HTTP 200
-  router   http://127.0.0.1:20130/health  ->  HTTP 200
+  brain    https://ninerouter-go-latest-bdg5.onrender.com/v1
 ```
+
+That last line says where the brain is, so "no local router" never reads as a fault. When
+`LLM_BASE_URL` points at this machine it is a `router` line with a health answer instead, and when
+it is blank it says `Groq direct (LLM_BASE_URL blank)`.
 
 Logs, one pair per service: `logs\run\<service>.out.log` and `.err.log`.
 Pids: `logs\run\pids.json`.
@@ -308,7 +314,7 @@ WEB_ORIGIN=https://friend.duke.io.vn
 | "Duke's own server is not answering" on the login screen | the API is not up: `powershell -File scripts\run-local.ps1 status` |
 | The phone shows the page but the microphone is refused | the URL is not `https://` — see §5 |
 | Nothing works after a reboot | the **Duke** task, §3 |
-| `status` shows a `router` line with no answer, or the friend goes quiet mid-call | the brain signpost is down. `powershell -File scripts\run-local.ps1 restart` starts it again — §10 |
+| `status` shows the brain line but the friend goes quiet, or replies stop arriving mid-call | the brain is down. If the brain is hosted, that is outside this machine — check its `/health` from a phone. If it is the local router, `restart` starts it again — §10 |
 
 ---
 
@@ -325,15 +331,17 @@ that contains real provider keys is not source, and must never be committed.
 **How it is switched on.** Three names in `.env`:
 
 ```
-LLM_BASE_URL=http://127.0.0.1:20130/v1
+LLM_BASE_URL=https://ninerouter-go-latest-bdg5.onrender.com/v1
 LLM_API_KEY=<the router's own client key, made in its dashboard>
 LLM_MODEL=ag/gemini-2.5-flash
 ```
 
 The model name carries two parts: the provider as the router knows it (`ag` = Antigravity, `gq` =
 Groq) and the model after the slash. Blank `LLM_BASE_URL` and the agent talks to Groq directly,
-exactly as it always did. Nothing else changes: `run-local.ps1 start` starts the router too when the
-binary is there, `stop` stops it, and `status` shows it, so it cannot be forgotten after a reboot.
+exactly as it always did. `run-local.ps1` reads that URL and decides: a loopback URL means the local
+router is part of a working call, so `start` starts it and `stop` stops it; anything else, hosted or
+blank, means the local router is left alone and `status` prints the brain's address instead. That
+matters after a reboot — the **Duke** task would otherwise bring back a router nobody is talking to.
 
 ### Which brain is in front of it, and why that one
 
@@ -363,6 +371,35 @@ and `ag/gemini-3.1-pro-low` are listed and answer `404 Requested entity was not 
 opened with "Oh really?" all three times, which is exactly the scripted feel the prompt is trying to
 avoid. The new one varied every opening.
 
+### It runs on Render now, not on this PC
+
+The router was moved to Render (`ninerouter-go-latest-bdg5.onrender.com`), so the PC no longer runs
+it. The local copy under `.9router-go\` is still on disk with its own database, but it is stopped
+and the launcher no longer starts it: that is the switch-back path, not a second brain.
+
+Three consequences, all real, and none of them visible in a successful test:
+
+1. **Render's free instances sleep.** After a stretch of idleness the first request has to wake the
+   container, and that first turn is slow — tens of seconds, not milliseconds. The instance answered
+   in 0.66 s during this switch because it was awake. Wake-up latency is invisible until it happens,
+   and it will happen the first time you call after a quiet evening. The fix is a cheap keep-alive
+   ping every ten minutes, or an instance type that does not sleep. Not done yet.
+2. **The connections live in a SQLite file on the container.** Provider connections are in
+   `$DATA_DIR/db/data.sqlite`, and there is no way to seed them from environment variables. On a
+   service whose filesystem is reset by a deploy, a redeploy takes the Antigravity connection and
+   the client key with it, and Duke then fails with `401`/`404` instead of saying anything useful.
+   Check that Render has a persistent disk attached and that `DATA_DIR` points into it. If it does
+   not, expect to re-add the connection and the key after every deploy.
+3. **That instance has no Groq connection.** All 28 models it lists are `ag/`. The Groq fallback
+   below is therefore not available *through the hosted router* — it is still available by clearing
+   `LLM_BASE_URL` and letting the agent talk to Groq directly, because `GROQ_API_KEY` is in `.env`
+   either way.
+
+One more trap, the mirror image of the one above: the hosted catalogue lists models it cannot serve.
+`ag/gemini-4-argon` and its `-low`/`-medium`/`-high` variants are all listed and all answer
+`404 Requested entity was not found`. And `ag/gemini-2.5-flash` works while being *absent* from the
+list. The list is a hint, not a contract; only a completion proves a model.
+
 ### The risk, stated plainly
 
 The router's own dashboard puts this warning on the Antigravity connection, and it is not
@@ -377,10 +414,12 @@ restricted. Free tiers like this have also disappeared before: the router's own 
 iFlow, Qwen Code and Gemini CLI free tiers being discontinued during 2026, so this is rented ground
 either way.
 
-Two things follow from that, and both are already true:
+Two things follow from that:
 
-- **Groq is still configured.** Nothing was removed. If Antigravity dies, the fix is one line —
-  `LLM_MODEL=gq/openai/gpt-oss-20b` — and a restart. Duke never became dependent on it.
+- **Groq is still reachable.** The old key is still in `.env`, and blanking `LLM_BASE_URL` is the
+  supported way back: the agent then talks to Groq directly with no router in between. What is no
+  longer true is "Groq is configured inside the router you are using right now" — the hosted one has
+  no Groq connection at all.
 - **Duke does not need the router to work.** `LLM_BASE_URL` blank is a supported configuration, not
   a fallback hack.
 
@@ -393,14 +432,23 @@ Two things follow from that, and both are already true:
    chat API is stateless: Duke re-sends the whole conversation each turn, and a router does not
    change how much is sent. Its own token savers compress tool output, and Duke sends no tools.
 
-**Where it went.** The dashboard is `http://127.0.0.1:20130` on this machine only. The binary is
-bound to loopback on purpose: it holds provider credentials, and the version that ships with a
-public default password is remotely takeable over if it is exposed. If you install it yourself
-elsewhere, bind `127.0.0.1` and set `INITIAL_PASSWORD` before the first start.
+**Where it went.** There are two dashboards now, and it is worth knowing which is which. The hosted
+one is the Render service's own URL, opened with the password set when it was deployed. The local
+one, `http://127.0.0.1:20130`, still exists but nothing uses it; its database holds the connections
+from before the move. Both hold provider credentials, so neither belongs on the open internet beyond
+its dashboard login. On the PC that is why the launcher binds it to loopback.
 
-**Before it was switched on, the path was proven end to end**, not assumed. Twice: first with the
-plugin pointed at the router in the agent's own construction, which streamed back
-`"The router path works."`; then on the real system prompt, where the reply came back
-`[[friendly]] Oh no worries at all, I've just been unpacking boxes. Long story short, my flat is
-still a total mess.` — valid mood tag, no dash, staying in the character's role, in 1.4 s.
+**Before it was switched on, the path was proven end to end** — first locally, then again after the
+move. On the hosted router, on the real system prompt, three turns:
+
+```
+[[sympathetic]] Oh no, long story short, sounds like you really earned your rest tonight.
+                Want to grab a quick cuppa and vent about it?
+[[surprised]]   No way, moving it up by a whole week is proper harsh. That's a classic case of
+                biting off more than they can chew, right?
+[[friendly]]    I hear you, let's call it a night and just put our feet up.
+```
+
+Valid mood tags, no dashes, two sentences each, and the native collocations the prompt asks for.
+Then through the plugin in the agent's own construction, which answered in 1.5 s with a valid tag.
 See §9 for the one thing that *is* fixed here and needs no router at all: `DashRewriter`.

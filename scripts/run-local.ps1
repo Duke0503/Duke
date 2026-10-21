@@ -56,6 +56,13 @@ $routerExe = Join-Path $root ".9router-go\9router-go.exe"
 $routerData = Join-Path $root ".9router-go\data"
 $routerPort = 20130
 
+# Where the brain actually is. A router on this machine is only part of a working call when
+# LLM_BASE_URL points back at this machine; pointing it at a hosted router, or leaving it blank to
+# talk to Groq directly, makes the local one dead weight. Starting it anyway would bring back a
+# second router after every reboot, holding a second copy of the provider keys for nobody.
+$brainUrl = Get-EnvValue "LLM_BASE_URL" ""
+$needsLocalRouter = $brainUrl -match "//(127\.0\.0\.1|localhost|\[::1\])(:\d+)?(/|$)"
+
 $services = @(
     [pscustomobject]@{
         Name    = "api"
@@ -107,6 +114,7 @@ function Test-RouterReady {
 
 function Start-Router {
     if (-not (Test-Path $routerExe)) { return }
+    if (-not $needsLocalRouter) { return }
     if (Test-RouterReady) {
         Write-Host ("  {0,-8} already up   port {1}" -f "router", $routerPort)
         return
@@ -148,8 +156,9 @@ function Stop-Router {
 function Start-Duke {
     New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 
-    # Before the early return below: if everything is already up but the router is not, a call still
-    # fails, and "already running" would be a lie.
+    # Before the early return below: if everything is already up but a router this machine is
+    # supposed to be running is not, a call still fails, and "already running" would be a lie.
+    # Skipped entirely when the brain lives somewhere else, which Start-Router decides.
     Start-Router
 
     $alive = @(Get-Recorded | Where-Object { Get-Process -Id $_.Pid -ErrorAction SilentlyContinue })
@@ -272,9 +281,14 @@ function Show-Status {
         Write-Host ("  {0,-8} {1}  ->  {2}" -f $service.Name, $service.Ready, $answer)
     }
 
-    if (Test-Path $routerExe) {
+    # Say where the brain is, so "no local router" never reads as a fault once the brain is hosted.
+    # Blank LLM_BASE_URL means Groq is the brain and no router is involved at all.
+    if ($needsLocalRouter) {
         $answer = if (Test-RouterReady) { "HTTP 200" } else { "no answer" }
         Write-Host ("  {0,-8} {1}  ->  {2}" -f "router", "http://127.0.0.1:$routerPort/health", $answer)
+    } else {
+        $brain = if ($brainUrl) { $brainUrl } else { "Groq direct (LLM_BASE_URL blank)" }
+        Write-Host ("  {0,-8} {1}" -f "brain", $brain)
     }
 
     Write-Host ""
